@@ -24,6 +24,6 @@ class RuntimeIsolation(unittest.TestCase):
         self.assertEqual(inherited['MPVBUNDLE'],'false')
 
     def test_diagnostics_remove_server_urls_addresses_and_credentials(self):
-        output=redact('failed http://private-server:8096/videos?token=secret 10.1.2.3:8096 AccessToken="abc" password=xyz Authorization: Bearer-secret')
-        for secret in ('private-server','10.1.2.3','abc','xyz','Bearer-secret','token=secret'):
+        output=redact('failed http://private-server:8096/videos?token=secret 10.1.2.3:8096 AccessToken="abc" password=xyz Authorization: Bearer spaced-secret')
+        for secret in ('private-server','10.1.2.3','abc','xyz','Bearer','spaced-secret','token=secret'):
             self.assertNotIn(secret,output)

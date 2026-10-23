@@ -40,6 +40,14 @@ static void applyPlayerBranding(void) {
     }
     NSData *expectedPixels = iconPixels(icon);
     NSData *actualPixels = iconPixels(NSApp.applicationIconImage);
+    double iconError = 255;
+    if (expectedPixels.length && actualPixels.length == expectedPixels.length) {
+        const unsigned char *expected = expectedPixels.bytes;
+        const unsigned char *actual = actualPixels.bytes;
+        double total = 0;
+        for (NSUInteger i = 0; i < expectedPixels.length; i++) total += abs((int)actual[i] - (int)expected[i]);
+        iconError = total / expectedPixels.length;
+    }
     NSString *iconDiagnostics = NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_ICON_DIAGNOSTICS"];
     if (iconDiagnostics) {
         [expectedPixels writeToFile:[iconDiagnostics stringByAppendingPathComponent:@"expected-icon.rgba"] atomically:YES];
@@ -53,7 +61,10 @@ static void applyPlayerBranding(void) {
     }
     branding = @{@"name": NSProcessInfo.processInfo.processName,
                  @"bundle": bundle.bundlePath,
-                 @"iconMatchesJellyfin": @((BOOL)(expectedPixels != nil && [actualPixels isEqualToData:expectedPixels]))};
+                 // AppKit resamples Dock icons. Allow less than 1% mean RGBA
+                 // deviation, rather than requiring identical antialiasing.
+                 @"iconPixelMeanError": @(iconError),
+                 @"iconMatchesJellyfin": @((BOOL)(iconError <= 2.0))};
 }
 
 static void disconnectSocket(void) {

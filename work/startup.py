@@ -21,6 +21,7 @@ class StartupFailure(RuntimeError):
 
 def redact(text):
     text = re.sub(r'https?://\S+', '[server address omitted]', str(text))
+    text = re.sub(r'(?im)\bauthorization\s*[:=]\s*[^\r\n]+', 'Authorization=[omitted]', text)
     text = re.sub(r'''(?i)((?:access[_-]?)?token|authorization|password|api[_-]?key|X-Emby-Token)["']?[\s:=]+["']?[^\s,"'}]+''', r'\1=[omitted]', text)
     text = re.sub(r'\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b', '[address omitted]', text)
     return text.replace(str(Path.home()), '~')[:16384]
