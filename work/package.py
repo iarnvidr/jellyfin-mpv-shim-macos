@@ -56,7 +56,20 @@ if sys.platform!='darwin': raise SystemExit('Packaging release artifacts require
 def apple(tool):
  p=Path('/usr/bin')/tool
  return str(p) if p.exists() else subprocess.check_output(['/usr/bin/xcrun','--find',tool],text=True).strip()
-def run(tool,*args): subprocess.run([apple(tool),*map(str,args)],check=True,env={**os.environ,'PATH':'/usr/bin:/bin:/usr/sbin:/sbin'})
+def run(tool,*args):
+ command=[apple(tool),*map(str,args)]
+ env={**os.environ,'PATH':'/usr/bin:/bin:/usr/sbin:/sbin'}
+ if tool!='hdiutil': return subprocess.run(command,check=True,env=env)
+ # DiskImages can briefly retain its device/file lock after creating an image
+ # on hosted runners. Retry only the documented busy errors, never corruption.
+ import time
+ for attempt in range(3):
+  result=subprocess.run(command,env=env,capture_output=True,text=True)
+  print(result.stdout,end=''); print(result.stderr,end='',file=sys.stderr)
+  if result.returncode==0: return result
+  if attempt==2 or not any(message in result.stderr for message in ('Resource busy','Resource temporarily unavailable')):
+   result.check_returncode()
+  time.sleep(2*(attempt+1))
 app=WORK/'dist/Jellyfin Player.app'
 if not app.is_dir(): raise SystemExit(f'Missing built app: {app}')
 OUT.mkdir(exist_ok=True); stage=WORK/'installer'; stage.mkdir(exist_ok=True)
