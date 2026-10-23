@@ -32,6 +32,23 @@ class SparklePublicKeyTests(unittest.TestCase):
         self.assertIn('@executable_path/../../../../Frameworks', args)
         self.assertNotIn('@executable_path/../../../Frameworks', args)
 
+    def test_swift_dyld_smoke_precedes_gui_and_is_exact(self):
+        source = (WORK / 'Updater.swift').read_text()
+        smoke = source.index('arguments == ["--dyld-smoke"]')
+        gui = source.index('NSApplication.shared')
+        self.assertLess(smoke, gui)
+        self.assertIn('_ = SPUUpdater.self', source)
+        self.assertIn('JELLYFIN_PLAYER_SPARKLE_DYLD_OK', source)
+        self.assertIn('exit(2)', source)
+        self.assertIn('hostBundle.bundleIdentifier == "org.jellyfin.mpvshim.local"', source)
+
+    def test_build_smoke_is_bounded_and_checks_marker_and_exit(self):
+        build = (WORK / 'build.py').read_text()
+        self.assertIn("capture_output=True,timeout=30", build)
+        self.assertIn("result.returncode != 0", build)
+        self.assertIn("JELLYFIN_PLAYER_SPARKLE_DYLD_OK", build)
+        self.assertIn("os.kill(exc.pid", build)
+
     def test_seed_format_contract(self):
         # Sparkle's sign_update input is a base64-encoded Ed25519 private seed,
         # exactly 32 bytes; never load or manufacture the secret in this test.

@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Sparkle
+import Darwin
 
 /// A small native host for Sparkle. The host bundle is the *main* application,
 /// never this nested helper; consequently Sparkle replaces and relaunches the app.
@@ -50,11 +51,24 @@ final class Updater: NSObject, NSApplicationDelegate {
     }
 }
 
-let arguments = CommandLine.arguments
-if arguments.count == 2 {
-    let app = NSApplication.shared
-    app.setActivationPolicy(.accessory)
-    let delegate = Updater(appBundleURL: URL(fileURLWithPath: arguments[1]))
-    app.delegate = delegate
-    app.run()
+let arguments = Array(CommandLine.arguments.dropFirst())
+if arguments == ["--dyld-smoke"] {
+    // Taking the metatype forces a real reference to Sparkle's public API while
+    // deliberately avoiding NSApplication, windows, and the run loop.
+    _ = SPUUpdater.self
+    print("JELLYFIN_PLAYER_SPARKLE_DYLD_OK")
+    exit(0)
 }
+guard arguments.count == 1,
+      !arguments[0].hasPrefix("-"),
+      let hostBundle = Bundle(url: URL(fileURLWithPath: arguments[0])),
+      hostBundle.bundleURL.pathExtension == "app",
+      hostBundle.bundleIdentifier == "org.jellyfin.mpvshim.local" else {
+    fputs("Usage: Mac Updater <main Jellyfin Player .app>\n", stderr)
+    exit(2)
+}
+let app = NSApplication.shared
+app.setActivationPolicy(.accessory)
+let delegate = Updater(appBundleURL: hostBundle.bundleURL)
+app.delegate = delegate
+app.run()

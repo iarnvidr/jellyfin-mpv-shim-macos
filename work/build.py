@@ -123,8 +123,13 @@ smoke=WORK/'sparkle-helper-smoke.app'
 shutil.copytree(app,smoke,symlinks=True)
 smoke_helper=smoke/'Contents/Helpers/Mac Updater.app/Contents/MacOS/Mac Updater'
 stage('moved-bundle dyld smoke (timeout 30s)')
-try: result=subprocess.run([str(smoke_helper),'--dyld-smoke'],check=True,text=True,capture_output=True,timeout=30)
-except subprocess.TimeoutExpired as exc: raise SystemExit('Sparkle helper moved-app dyld smoke exceeded 30 seconds') from exc
-if 'SPARKLE_HELPER_DYLD_OK' not in result.stdout: raise SystemExit('Sparkle helper moved-app dyld smoke failed')
+try: result=subprocess.run([str(smoke_helper),'--dyld-smoke'],text=True,capture_output=True,timeout=30)
+except subprocess.TimeoutExpired as exc:
+ if exc.pid is not None:
+  try: os.kill(exc.pid, __import__('signal').SIGKILL)
+  except ProcessLookupError: pass
+ raise SystemExit('Sparkle helper moved-app dyld smoke exceeded 30 seconds') from exc
+if result.returncode != 0 or 'JELLYFIN_PLAYER_SPARKLE_DYLD_OK' not in result.stdout:
+ raise SystemExit(f'Sparkle helper moved-app dyld smoke failed (exit {result.returncode}): {result.stderr}')
 smoke.rename(WORK/'sparkle-helper-smoke-complete.app')
 command(apple('codesign'),'--force','--deep','--sign','-',str(app)); print('APP_READY',app,flush=True)
