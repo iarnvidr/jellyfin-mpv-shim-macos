@@ -124,6 +124,14 @@ with info_path.open('wb') as f: plistlib.dump(info,f)
 # Provenance and inventory are generated before signing; artifact hash is added by packaging.
 manifest={'schema':1,'version':VERSION,'python':platform.python_version(),'platform':platform.platform(),'mpv':{'version':LOCK['MPV_VERSION'],'url':LOCK['MPV_URL'],'sha256':LOCK['MPV_SHA256'],'executable':'Contents/Resources/mpv.app/Contents/MacOS/mpv'},'sparkle':{'version':LOCK['SPARKLE_VERSION'],'url':LOCK['SPARKLE_URL'],'sha256':LOCK['SPARKLE_SHA256']},'inputs':{'python_lock_sha256':digest(ROOT/'uv.lock'),'native_lock_sha256':digest(WORK/'native-dependencies.lock')}}
 (app/'Contents/Resources/build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+stage('remove external native search paths')
+from bundle_signing import is_macho
+from native_audit import external_runpaths
+for binary in app.rglob('*'):
+ if binary.is_symlink() or not binary.is_file() or not is_macho(binary): continue
+ load=subprocess.check_output([otool,'-l',str(binary)],text=True)
+ for rpath in external_runpaths(load):
+  command(install_name_tool,'-delete_rpath',rpath,str(binary))
 stage('native audit (timeout 180s)')
 try:
  subprocess.run([sys.executable,str(WORK/'native_audit.py'),str(app)],check=True,env={**os.environ,'PATH':'/usr/bin:/bin:/usr/sbin:/sbin'},timeout=180)

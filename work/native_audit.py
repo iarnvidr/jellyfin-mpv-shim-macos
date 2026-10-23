@@ -17,6 +17,17 @@ def parse_otool_dependencies(output):
 def load_command_blocks(output):
     return LOAD_COMMAND_SPLIT_RE.split(output)
 
+
+def external_runpaths(output):
+    """Raw LC_RPATH values to remove before signing a self-contained app."""
+    result=[]
+    for block in load_command_blocks(output):
+        if re.search(r'\bcmd LC_RPATH\b',block):
+            match=re.search(r'\bpath (.+?) \(offset \d+\)',block)
+            if match and not match[1].startswith(('@loader_path/','@executable_path/',*SYSTEM_PREFIXES)):
+                result.append(match[1])
+    return list(dict.fromkeys(result))
+
 LOAD_COMMAND_TYPES = {'LC_LOAD_DYLIB', 'LC_LOAD_WEAK_DYLIB', 'LC_REEXPORT_DYLIB', 'LC_LOAD_UPWARD_DYLIB'}
 
 def parse_load_dependencies(output):

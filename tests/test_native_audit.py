@@ -7,6 +7,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'work'))
 import native_audit
 
 class NativeAuditParsing(unittest.TestCase):
+    def test_external_runpaths_are_removed_without_removing_bundle_or_apple_paths(self):
+        values=['@executable_path/lib','/opt/homebrew/Cellar/vulkan-loader/1.4/lib','@loader_path/../Frameworks','/usr/lib','/tmp/old-build/lib']
+        output='\n'.join(f'Load command {i}\n cmd LC_RPATH\n path {path} (offset 12)' for i,path in enumerate(values))
+        self.assertEqual(native_audit.external_runpaths(output),[values[1],values[4]])
     def test_otool_load_parser_ignores_image_header_and_extracts_spaced_paths(self):
         output='''/tmp/Jellyfin MPV Shim.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle:\n\t/Users/runner/work/Jellyfin MPV Shim.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle (compatibility version 1.0.0, current version 2.0.0)\n\t@rpath/Other Framework.framework/Versions/A/Other Framework (compatibility version 1.0.0, current version 1.0.0)\n'''
         deps=native_audit.parse_otool_dependencies(output)
