@@ -18,6 +18,7 @@ let payload: [String: Any] = [
     "pid": Int(pid), "registered": app?.isTerminated == false,
     "bundlePath": app?.bundleURL?.path ?? "",
     "localizedName": app?.localizedName ?? "",
+    "hidden": app?.isHidden ?? false,
     "windows": windows.count,
     "windowNames": windows.compactMap { $0[kCGWindowName as String] as? String },
     "windowBounds": windows.compactMap { $0[kCGWindowBounds as String] as? [String: Any] }
@@ -112,9 +113,21 @@ def verify_same_app_restore(exe, config, env, owner_pid, probe_bin):
     deadline=time.monotonic()+10
     while time.monotonic()<deadline:
         if not ipc_property(endpoint,'window-minimized') and visible_descendant(probe_bin,owner_pid):
-            return {'name':'second launch restores the actual minimized app window after acknowledgement','passed':True}
+            break
         time.sleep(0.2)
-    raise RuntimeError('second launch did not restore a usable window')
+    else: raise RuntimeError('second launch did not restore a minimized window')
+    ipc_command(endpoint,['set_property','user-data/jellyfin-window-action',{'action':'hide'}])
+    deadline=time.monotonic()+5
+    while time.monotonic()<deadline:
+        state=json.loads(run([str(probe_bin),str(owner_pid)],timeout=10).stdout)
+        if state.get('hidden'): break
+        time.sleep(0.1)
+    else: raise RuntimeError('could not hide the real AppKit application')
+    second=run([str(exe),'--config',str(config)],env=env,timeout=15)
+    if second.returncode!=0: raise RuntimeError('second launch did not acknowledge hidden-app activation')
+    state=json.loads(run([str(probe_bin),str(owner_pid)],timeout=10).stdout)
+    if state.get('hidden') or not state.get('windows'): raise RuntimeError('second launch did not unhide the native app')
+    return {'name':'second launch restores minimized and hidden native windows after acknowledgement','passed':True}
 
 
 def verify_legacy_conflict(root, app, env, base, probe_bin, evidence):

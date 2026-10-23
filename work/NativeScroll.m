@@ -81,12 +81,29 @@ static void connectSocket(void) {
                 id enabled = event[@"data"];
                 atomic_store(&scrollEnabled, [enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue]);
             }
+            if ([event isKindOfClass:NSDictionary.class] && [event[@"id"] integerValue] == 9002 && [event[@"data"] isKindOfClass:NSDictionary.class]) {
+                NSString *action = event[@"data"][@"action"];
+                id request = event[@"data"][@"request"] ?: @"";
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if ([action isEqualToString:@"hide"]) [NSApp hide:nil];
+                    if ([action isEqualToString:@"show"]) {
+                        [NSApp unhide:nil];
+                        [NSApp activateIgnoringOtherApps:YES];
+                        NSWindow *window = NSApp.mainWindow ?: NSApp.windows.firstObject;
+                        [window deminiaturize:nil];
+                        [window makeKeyAndOrderFront:nil];
+                        NSDictionary *ack = @{@"request": request, @"visible": @(window.isVisible && !window.isMiniaturized && !NSApp.isHidden)};
+                        dispatch_async(ioQueue, ^{ writeCommand(@[@"set_property", @"user-data/jellyfin-window-ack", ack]); });
+                    }
+                });
+            }
             [inputBuffer replaceBytesInRange:NSMakeRange(0, length + 1) withBytes:NULL length:0];
         }
         if (inputBuffer.length > 1024 * 1024) disconnectSocket();
     });
     dispatch_resume(reader);
     writeCommand(@[@"observe_property", @9001, @"user-data/mpvtk-native-scroll"]);
+    writeCommand(@[@"observe_property", @9002, @"user-data/jellyfin-window-action"]);
     writeCommand(@[@"set_property", @"user-data/mpvtk-native-scroll-loaded", @YES]);
     dispatch_async(dispatch_get_main_queue(), ^{
         applyPlayerBranding();

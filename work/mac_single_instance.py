@@ -45,7 +45,7 @@ def legacy_owner(endpoint):
         return {'pid': 'unknown', 'app': 'unknown application', 'version': 'unknown'}
 
 
-def install(executable):
+def install(executable, activation_check=None):
     from jellyfin_mpv_shim import single_instance
     original = single_instance.SingleInstance
     identity = app_identity(executable)
@@ -114,7 +114,10 @@ def install(executable):
                     conn.sendall(single_instance._MAGIC+b'OK')
                     self.on_stop()
                 elif command == b'SHOW' and self.on_activate is not self._initial_activation:
+                    previous = activation_check() if activation_check else None
                     self.on_activate()
+                    if activation_check and activation_check() == previous:
+                        return
                     conn.sendall(single_instance._MAGIC+b'OK')
             except Exception as error:
                 log.warning('Instance activation failed: %s', type(error).__name__)

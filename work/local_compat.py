@@ -125,6 +125,28 @@ def apply(resources, package):
 
     from jellyfin_mpv_shim.player_window import WindowMixin
     original_chrome = WindowMixin.window_chrome_state
+    original_raise = WindowMixin.raise_window
+    def raise_window(self):
+        import time
+        import uuid
+        import startup
+        original_raise(self)
+        # AppKit hide (Command-H) is distinct from window minimization.
+        request=uuid.uuid4().hex
+        self._player.command('set_property','user-data/jellyfin-window-action',
+                             {'action':'show','request':request})
+        deadline=time.monotonic()+1
+        while time.monotonic()<deadline:
+            try:
+                ack=self._player.command('get_property','user-data/jellyfin-window-ack')
+                if isinstance(ack,dict) and ack.get('request')==request and ack.get('visible') is True:
+                    startup.WINDOW_ACTIVATION=request
+                    return
+            except python_mpv_jsonipc.MPVError:
+                pass
+            time.sleep(.05)
+        raise RuntimeError('The native player window did not acknowledge activation')
+    WindowMixin.raise_window = raise_window
     def chrome(self):
         state = original_chrome(self)
         state['title_bar_inset'] = 0

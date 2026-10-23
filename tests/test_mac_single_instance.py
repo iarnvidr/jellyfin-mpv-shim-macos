@@ -94,6 +94,15 @@ class MacInstanceUpgrade(unittest.TestCase):
             factory.return_value.__enter__.return_value=connection
             self.assertFalse(instance._request(b'SHOW'))
 
+    def test_ui_handler_return_without_a_new_native_ack_is_rejected(self):
+        single_instance.SingleInstance=self.original
+        cls=mac_single_instance.install(self.root/'Jellyfin Player.app/Contents/MacOS/Jellyfin Player',activation_check=lambda:'stale-ack')
+        primary=self.instance(cls)
+        primary.on_activate=lambda:None
+        self.assertTrue(primary.acquire())
+        with self.assertRaisesRegex(StartupFailure,'did not confirm'):
+            self.instance(cls).acquire()
+
     def test_current_version_at_a_different_install_path_is_an_upgrade_conflict(self):
         primary=self.instance()
         self.assertTrue(primary.acquire())

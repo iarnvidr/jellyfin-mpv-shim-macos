@@ -12,6 +12,7 @@ ENGINE_OUTPUT = deque(maxlen=32)
 ENGINE_PROCESS = None
 ENGINE_ATTEMPTS = 0
 ENGINE_FAILURE = None
+WINDOW_ACTIVATION = None
 
 
 class StartupFailure(RuntimeError):

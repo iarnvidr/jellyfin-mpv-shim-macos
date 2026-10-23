@@ -51,7 +51,8 @@ def launch():
     import local_compat
     local_compat.apply(resources, package)
     import mac_single_instance
-    mac_single_instance.install(executable)
+    import startup
+    mac_single_instance.install(executable, activation_check=lambda: startup.WINDOW_ACTIVATION)
     try:
         from jellyfin_mpv_shim.mpv_shim import main
         main()
