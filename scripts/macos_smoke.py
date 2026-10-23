@@ -48,11 +48,10 @@ def main():
             if probe.returncode==0:
                 state=json.loads(probe.stdout); alive=state['alive']; windows=state['windows']
                 if alive and windows: break
-            time.sleep(1)
-        if not alive: raise RuntimeError('native NSRunningApplication probe reports app not alive')
-        if not windows:
-            # Launcher may be non-GUI. Search real descendants rather than requiring its PID to own a window.
-            pending=[proc.pid]; seen=set()
+            # A launcher started as a raw executable need not be registered with
+            # LaunchServices, so NSRunningApplication may return nil for its PID.
+            # Discover and probe actual descendant PIDs on every poll instead.
+            pending=[proc.pid]; seen={proc.pid}; owner_pids=[]
             while pending:
                 parent=pending.pop(0)
                 for child_text in run(['/usr/bin/pgrep','-P',str(parent)]).stdout.split():
@@ -64,7 +63,10 @@ def main():
                 if candidate_probe.returncode==0:
                     candidate_state=json.loads(candidate_probe.stdout); owner_details.append(candidate_state)
                     if candidate_state.get('alive') and candidate_state.get('windows'):
-                        windows=candidate_state['windows']; state=candidate_state; break
+                        windows=candidate_state['windows']; state=candidate_state; alive=True; break
+            if alive and windows: break
+            time.sleep(1)
+        if not alive: raise RuntimeError('native NSRunningApplication probe found no live launcher or app descendant')
         if not windows: raise RuntimeError('native CGWindowList probe found no app-owned descendant window')
         shot=run(['/usr/sbin/screencapture','-x',str(evidence/'player.png')],timeout=20)
         if shot.returncode: raise RuntimeError('screencapture failed: '+shot.stderr)

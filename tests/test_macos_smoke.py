@@ -16,6 +16,9 @@ class MacOSSmokeTests(unittest.TestCase):
         self.assertIn('screencapture', source)
         self.assertIn('CGWindowListCopyWindowInfo', source)
         self.assertIn('NSRunningApplication', source)
+        self.assertIn('actual descendant PIDs', source)
+        self.assertIn('alive=True', source)
+        self.assertIn("run(['/usr/bin/pgrep','-P',str(parent)])", source)
         self.assertIn('xcrun',' '.join(source.split()))
         self.assertIn("root/'work/dist/Jellyfin Player.app'", source)
 
