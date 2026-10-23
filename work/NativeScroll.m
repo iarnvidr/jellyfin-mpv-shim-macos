@@ -83,6 +83,19 @@ static void writeCommand(NSArray *command) {
     if (written != (ssize_t)line.length) disconnectSocket();
 }
 
+static void acknowledgeWindow(NSWindow *window, id request, NSUInteger remaining) {
+    BOOL visible = window.isVisible && !window.isMiniaturized && !NSApp.isHidden;
+    if (!visible && remaining) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_MSEC * 50), dispatch_get_main_queue(), ^{
+            acknowledgeWindow(window, request, remaining - 1);
+        });
+        return;
+    }
+    NSDictionary *ack = @{@"request": request, @"visible": @(visible),
+                         @"windowTitle": window.title ?: @"", @"windowClass": window ? NSStringFromClass(window.class) : @"none"};
+    dispatch_async(ioQueue, ^{ writeCommand(@[@"set_property", @"user-data/jellyfin-window-ack", ack]); });
+}
+
 static void connectSocket(void) {
     if (socketFD >= 0 || !socketPath) return;
     struct sockaddr_un address = {0};
@@ -122,11 +135,15 @@ static void connectSocket(void) {
                     if ([action isEqualToString:@"show"]) {
                         [NSApp unhide:nil];
                         [NSApp activateIgnoringOtherApps:YES];
-                        NSWindow *window = NSApp.mainWindow ?: NSApp.windows.firstObject;
+                        NSWindow *window = NSApp.mainWindow;
+                        if (!window) {
+                            for (NSWindow *candidate in NSApp.windows) {
+                                if (candidate.canBecomeMainWindow) { window = candidate; break; }
+                            }
+                        }
                         [window deminiaturize:nil];
                         [window makeKeyAndOrderFront:nil];
-                        NSDictionary *ack = @{@"request": request, @"visible": @((BOOL)(window.isVisible && !window.isMiniaturized && !NSApp.isHidden))};
-                        dispatch_async(ioQueue, ^{ writeCommand(@[@"set_property", @"user-data/jellyfin-window-ack", ack]); });
+                        acknowledgeWindow(window, request, 30);
                     }
                 });
             }

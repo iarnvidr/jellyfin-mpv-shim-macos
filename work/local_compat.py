@@ -135,7 +135,8 @@ def apply(resources, package):
         request=uuid.uuid4().hex
         self._player.command('set_property','user-data/jellyfin-window-action',
                              {'action':'show','request':request})
-        deadline=time.monotonic()+1
+        deadline=time.monotonic()+2
+        ack=None
         while time.monotonic()<deadline:
             try:
                 ack=self._player.command('get_property','user-data/jellyfin-window-ack')
@@ -145,6 +146,8 @@ def apply(resources, package):
             except python_mpv_jsonipc.MPVError:
                 pass
             time.sleep(.05)
+        import logging
+        logging.getLogger('window').warning('Native window activation was not confirmed: %s',ack)
         raise RuntimeError('The native player window did not acknowledge activation')
     WindowMixin.raise_window = raise_window
     def chrome(self):

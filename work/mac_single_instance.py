@@ -96,7 +96,7 @@ def install(executable, activation_check=None):
             if not endpoint: return False
             port, token = endpoint
             try:
-                with socket.create_connection(('127.0.0.1', port), timeout=2) as connection:
+                with socket.create_connection(('127.0.0.1', port), timeout=3) as connection:
                     connection.sendall(single_instance._MAGIC+token+b'\n')
                     reply = b''
                     while len(reply) < 6:
