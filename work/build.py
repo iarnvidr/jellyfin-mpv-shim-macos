@@ -14,9 +14,33 @@ formula=json.loads(urllib.request.urlopen(LOCK['MPV_SOURCE']).read())
 bottle=formula['bottle']['stable']['files']['arm64_sequoia']
 if bottle['sha256']!=LOCK['MPV_ARCHIVE_SHA256'] or formula['versions']['stable'] not in LOCK['MPV_REVISION']: raise SystemExit('mpv formula provenance changed')
 command('brew','fetch','--force','--bottle-tag=arm64_sequoia','--retry','mpv')
-mpv=Path(subprocess.check_output(['brew','--cache','--bottle','mpv'],text=True).strip())
-if not mpv.is_file(): raise SystemExit(f'mpv bottle missing from Homebrew cache: {mpv}')
-if digest(mpv)!=LOCK['MPV_ARCHIVE_SHA256']: raise SystemExit('mpv bottle hash mismatch')
+# --cache --bottle alone reports the cache directory; --bottle-tag selects
+# the formula's exact bottle cache path. Search downloads as a fallback because
+# Homebrew versions may organize cached downloads differently. Trust content,
+# not a guessed filename: only the independently locked SHA-256 is accepted.
+cache_output=subprocess.check_output(['brew','--cache','--bottle-tag=arm64_sequoia','mpv'],text=True).strip()
+cache_path=Path(cache_output)
+candidates=[]
+if cache_path.is_file(): candidates.append(cache_path)
+download_dirs={cache_path/'downloads',cache_path.parent/'downloads'}
+# Homebrew's cache path is normally itself under downloads; include that
+# directory plus the formula cache directory for layout variations.
+for parent in cache_path.parents:
+ if parent.name=='downloads': download_dirs.add(parent)
+if cache_path.is_dir(): download_dirs.add(cache_path)
+for downloads in download_dirs:
+ if downloads.is_dir(): candidates.extend(p for p in downloads.iterdir() if p.is_file())
+matched=[]
+seen=set()
+for candidate in candidates:
+ if candidate in seen: continue
+ seen.add(candidate)
+ try:
+  if digest(candidate)==LOCK['MPV_ARCHIVE_SHA256']: matched.append(candidate)
+ except OSError:
+  continue
+if not matched: raise SystemExit('mpv bottle with locked SHA-256 not found in Homebrew cache')
+mpv=matched[0]
 command('brew','install','mpv')
 mpvbin=Path(subprocess.check_output(['brew','--prefix','mpv'],text=True).strip())/'bin/mpv'
 if not mpvbin.is_file(): raise SystemExit('mpv executable missing')
