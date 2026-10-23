@@ -1,5 +1,6 @@
 """Strict Mach-O closure, architecture and deployment-target audit for app bundles."""
 from pathlib import Path
+from collections import deque
 import argparse, json, re, subprocess, sys
 SYSTEM_PREFIXES=('/System/Library/','/usr/lib/')
 OTOOL_DEPENDENCY_RE = re.compile(r'^\s*(.+?)\s+\(compatibility version ')
@@ -61,6 +62,8 @@ def executable_type(load_commands):
 def context_rpaths(image, load, inherited=(), executable=None):
     """Return this loader's runpaths appended to the inherited dyld stack."""
     return list(dict.fromkeys([*inherited, *rpaths_from_load_commands(load, image, executable)]))
+
+MAX_AUDIT_STATES = 100_000
 
 
 def apple(tool):
@@ -128,7 +131,7 @@ def audit(app):
         except (OSError,subprocess.CalledProcessError): continue
         if executable_type(header): roots.append(path)
     main_exe=str(app/'Contents/MacOS/Jellyfin Player')
-    queue=[(root,root,context_rpaths(root,by_path[root]['_load'], executable=root)) for root in roots]
+    queue=deque((root,root,context_rpaths(root,by_path[root]['_load'], executable=root)) for root in roots)
     # Python extensions run under the main executable's dyld stack. Seed them
     # before traversal; normal graph walking then follows their transitive loads.
     if main_exe in by_path:
@@ -138,10 +141,16 @@ def audit(app):
                 queue.append((module,main_exe,context_rpaths(module,b['_load'],main_stack,executable=main_exe)))
     visited=set(); unresolved=set()
     while queue:
-        loader, executable, stack=queue.pop(0)
-        state=(loader,executable,tuple(stack))
+        loader, executable, stack=queue.popleft()
+        # Paths are ordered: dyld resolves the first existing candidate. Keep
+        # root and executable identity, but canonicalize aliases for cycle checks.
+        stack=tuple(dict.fromkeys(str(Path(p).resolve()) if not p.startswith('@') else p for p in stack))
+        state=(loader,executable,stack)
         if state in visited: continue
-        visited.add(state); b=by_path[loader]
+        visited.add(state)
+        if len(visited) > MAX_AUDIT_STATES:
+            raise RuntimeError(f'native audit exceeded {MAX_AUDIT_STATES} distinct (root, loader, search-path) states; possible pathological rpath graph')
+        b=by_path[loader]
         for dep in b['dependencies']:
             if dep.startswith('@rpath/'):
                 candidates=resolve_rpath_dependency(dep,stack)

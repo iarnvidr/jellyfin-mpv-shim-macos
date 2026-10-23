@@ -77,6 +77,13 @@ class NativeAuditParsing(unittest.TestCase):
             nested_stack=native_audit.context_rpaths(str(nested),loads[str(nested)],stack,executable=str(main))
             self.assertTrue(any(Path(candidate).exists() for candidate in native_audit.resolve_rpath_dependency(deps[str(nested)][0],nested_stack)))
 
+    def test_walk_queue_is_deque_and_state_limit_is_explicit(self):
+        self.assertEqual(native_audit.MAX_AUDIT_STATES, 100_000)
+        source=(Path(native_audit.__file__).read_text())
+        self.assertIn('queue=deque(',source)
+        self.assertIn('queue.popleft()',source)
+        self.assertIn('exceeded',source)
+
     def test_build_uses_nested_mpv_and_relocates_moltenvk_before_audit(self):
         build=Path(__file__).resolve().parents[1]/'work/build.py'
         source=build.read_text()
@@ -84,6 +91,9 @@ class NativeAuditParsing(unittest.TestCase):
         self.assertIn("install_name_tool",source)
         self.assertLess(source.index('install_name_tool'),source.index("'native_audit.py'"))
         self.assertIn("mpv.app/Contents/MacOS/mpv",source)
+        self.assertIn('timeout=180',source)
+        self.assertIn('timeout=30',source)
+        self.assertIn('BUILD_STAGE',source)
         launch=(build.parent/'launch.py').read_text()
         self.assertIn("player = app_contents / 'Resources/mpv.app/Contents/MacOS/mpv'",launch)
         self.assertIn("standalone in (app/'Contents/Frameworks/mpv', app/'Contents/Resources/mpv')",source)

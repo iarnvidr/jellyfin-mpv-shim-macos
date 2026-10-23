@@ -37,6 +37,14 @@ jobs:
         run: uv run --locked python work/package.py
       - name: Native moved-bundle GUI and dyld smoke
         run: uv run --locked python scripts/macos_smoke.py
+      - name: Upload native smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jellyfin-Player-macOS-smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/macos-smoke-evidence/**
+          if-no-files-found: warn
+          compression-level: 0
       # Upload exactly the outputs from this single build/package invocation;
       # do not rebuild per artifact or silently omit audit/source evidence.
       - uses: actions/upload-artifact@v4

@@ -5,11 +5,13 @@ NAME='Jellyfin Player'; VERSION=(ROOT/'VERSION').read_text().strip()
 LOCK=dict(line.split('=',1) for line in (WORK/'native-dependencies.lock').read_text().splitlines() if line and not line.startswith('#'))
 def digest(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 def command(*a): subprocess.run(a,check=True,env={**os.environ,'PATH':'/usr/bin:/bin:/usr/sbin:/sbin'})
+def stage(name): print(f'BUILD_STAGE {name}',flush=True)
 def apple(tool):
  p=Path('/usr/bin')/tool
  return str(p) if p.exists() else subprocess.check_output(['/usr/bin/xcrun','--find',tool],text=True).strip()
 if sys.platform!='darwin' or platform.machine()!='arm64': raise SystemExit('Build on Apple Silicon macOS.')
 # Download immutable official mpv-player archive, verify exact bytes, then extract.
+stage('acquire mpv')
 command(sys.executable,str(WORK/'acquire_mpv.py'))
 mpvapp=WORK/'mpv-release/mpv.app'
 mpvbin=mpvapp/'Contents/MacOS/mpv'
@@ -21,12 +23,14 @@ sparkle=WORK/'Sparkle-2.10.0.tar.xz'
 if not sparkle.exists(): urllib.request.urlretrieve(LOCK['SPARKLE_URL'],sparkle)
 if digest(sparkle)!=LOCK['SPARKLE_SHA256']: raise SystemExit('Sparkle SHA-256 mismatch')
 command('tar','-xf',str(sparkle),'-C',str(WORK))
+stage('compile native components')
 command(swiftc,str(WORK/'Updater.swift'),'-o',str(WORK/'Mac Updater'),'-F',str(WORK),'-framework','AppKit','-framework','Sparkle','-Xlinker','-rpath','-Xlinker','@executable_path/../../../../Frameworks')
 command(clang,'-dynamiclib','-fobjc-arc','-fblocks',str(WORK/'NativeScroll.m'),'-o',str(WORK/'native-scroll.dylib'),'-framework','Cocoa')
 metadata=[]
 for d in importlib.metadata.distributions():
  n=d.metadata.get('Name')
  if n and not n.lower().startswith(('pyinstaller','altgraph','macholib')): metadata.extend(['--copy-metadata',n])
+stage('PyInstaller')
 command(str(ROOT/'.venv/bin/pyinstaller'),'--noconfirm','--clean','--windowed','--onedir','--name',NAME,'--osx-bundle-identifier','org.jellyfin.mpvshim.local','--icon',str(WORK/'source/jellyfin.icns'),'--collect-all','jellyfin_mpv_shim','--collect-all','jellyfin_apiclient_python','--collect-all','python_mpv_jsonipc','--hidden-import','PIL.ImageFont','--add-binary',str(mpvbin)+':.','--add-binary',str(WORK/'native-scroll.dylib')+':.','--distpath',str(WORK/'dist'),'--workpath',str(WORK/'pyinstaller'),'--specpath',str(WORK),*metadata,str(WORK/'launch.py'))
 app=WORK/'dist'/(NAME+'.app'); support=app/'Contents/Resources/mac_support'; support.mkdir(parents=True,exist_ok=True)
 # The official artifact is a complete app, not a standalone executable: preserve its
@@ -49,6 +53,7 @@ shutil.copy2(WORK/'source/jellyfin.icns',mpv_dest/'Contents/Resources/jellyfin.i
 for standalone in (app/'Contents/Frameworks/mpv', app/'Contents/Resources/mpv'):
  if standalone.is_symlink() or standalone.is_file(): standalone.unlink()
  elif standalone.is_dir(): shutil.rmtree(standalone)
+stage('relocate native load commands')
 # Relocate actual dependency load commands and dylib install IDs (LC_ID_DYLIB).
 install_name_tool=apple('install_name_tool'); otool=apple('otool')
 molten=mpv_dest/'Contents/Frameworks/libMoltenVK.dylib'
@@ -107,13 +112,19 @@ with info_path.open('wb') as f: plistlib.dump(info,f)
 # Provenance and inventory are generated before signing; artifact hash is added by packaging.
 manifest={'schema':1,'version':VERSION,'python':platform.python_version(),'platform':platform.platform(),'mpv':{'version':LOCK['MPV_VERSION'],'url':LOCK['MPV_URL'],'sha256':LOCK['MPV_SHA256'],'executable':'Contents/Resources/mpv.app/Contents/MacOS/mpv'},'sparkle':{'version':LOCK['SPARKLE_VERSION'],'url':LOCK['SPARKLE_URL'],'sha256':LOCK['SPARKLE_SHA256']},'inputs':{'python_lock_sha256':digest(ROOT/'uv.lock'),'native_lock_sha256':digest(WORK/'native-dependencies.lock')}}
 (app/'Contents/Resources/build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
-subprocess.run([sys.executable,str(WORK/'native_audit.py'),str(app)],check=True,env={**os.environ,'PATH':'/usr/bin:/bin:/usr/sbin:/sbin'})
+stage('native audit (timeout 180s)')
+try:
+ subprocess.run([sys.executable,str(WORK/'native_audit.py'),str(app)],check=True,env={**os.environ,'PATH':'/usr/bin:/bin:/usr/sbin:/sbin'},timeout=180)
+except subprocess.TimeoutExpired as exc:
+ raise SystemExit(f'native audit exceeded 180 seconds for {app}') from exc
 # Execute a copied bundle at a different path: this is a native dyld/framework-load
 # smoke check only, not a GUI or complete-update/relaunch test.
 smoke=WORK/'sparkle-helper-smoke.app'
 shutil.copytree(app,smoke,symlinks=True)
 smoke_helper=smoke/'Contents/Helpers/Mac Updater.app/Contents/MacOS/Mac Updater'
-result=subprocess.run([str(smoke_helper),'--dyld-smoke'],check=True,text=True,capture_output=True)
+stage('moved-bundle dyld smoke (timeout 30s)')
+try: result=subprocess.run([str(smoke_helper),'--dyld-smoke'],check=True,text=True,capture_output=True,timeout=30)
+except subprocess.TimeoutExpired as exc: raise SystemExit('Sparkle helper moved-app dyld smoke exceeded 30 seconds') from exc
 if 'SPARKLE_HELPER_DYLD_OK' not in result.stdout: raise SystemExit('Sparkle helper moved-app dyld smoke failed')
 smoke.rename(WORK/'sparkle-helper-smoke-complete.app')
 command(apple('codesign'),'--force','--deep','--sign','-',str(app)); print('APP_READY',app,flush=True)

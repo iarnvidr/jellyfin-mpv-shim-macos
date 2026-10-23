@@ -12,7 +12,7 @@ def main():
         print('UNSUPPORTED: native smoke requires macOS; host is ' + sys.platform)
         return 0
     root=pathlib.Path(__file__).resolve().parents[1]
-    app=root/'work/Jellyfin Player.app'
+    app=root/'work/dist/Jellyfin Player.app'
     if not app.is_dir(): raise RuntimeError(f'packaged app missing: {app}')
     evidence=root/'outputs/macos-smoke-evidence'; evidence.mkdir(parents=True,exist_ok=True)
     base=pathlib.Path(tempfile.mkdtemp(prefix='jellyfin smoke ')); home=base/'home'; home.mkdir()
@@ -35,7 +35,9 @@ def main():
         deadline=time.time()+60; visible=False; accessibility=False
         while time.time()<deadline:
             if proc.poll() is not None: raise RuntimeError(f'main app exited during startup: {proc.returncode}')
-            probe=run(['/usr/bin/osascript','-e','tell application "System Events" to get name of every process whose name is "Jellyfin Player"'])
+            remaining=deadline-time.time()
+            if remaining <= 0: break
+            probe=run(['/usr/bin/osascript','-e','tell application "System Events" to get name of every process whose name is "Jellyfin Player"'],timeout=min(10,remaining))
             if probe.returncode==0:
                 visible='Jellyfin Player' in probe.stdout
                 if visible: break
@@ -62,7 +64,7 @@ def main():
             try: mpv.wait(timeout=15)
             except subprocess.TimeoutExpired: mpv.kill(); mpv.wait()
             mpvlog.close()
-        quit_result=run(['/usr/bin/osascript','-e','tell application "System Events" to tell process "Jellyfin Player" to keystroke "q" using {command down}'],timeout=15)
+        quit_result=run(['/usr/bin/osascript','-e','tell application "System Events" to tell process "Jellyfin Player" to keystroke "q" using {command down}'],timeout=10)
         if quit_result.returncode: proc.terminate()
         try: proc.wait(timeout=15)
         except subprocess.TimeoutExpired: proc.terminate(); proc.wait(timeout=10)
