@@ -11,6 +11,7 @@ import threading
 ENGINE_OUTPUT = deque(maxlen=32)
 ENGINE_PROCESS = None
 ENGINE_ATTEMPTS = 0
+ENGINE_FAILURE = None
 
 
 class StartupFailure(RuntimeError):
@@ -58,7 +59,12 @@ def write_report(error, app, player, logs):
     app, logs = Path(app), Path(logs)
     signatures = signature_results(player)
     status = ENGINE_PROCESS.poll() if ENGINE_PROCESS else None
-    output = '\n'.join(ENGINE_OUTPUT)
+    # Engine startup diagnostics only. Do not copy browser/server/script output
+    # or Python tracebacks that can contain private URLs or account data.
+    error_terms = ('library not loaded:', 'referenced from:', 'reason:', 'code signature',
+                   'invalid page', 'error parsing option', 'failed to initialize',
+                   'error opening', 'option not found', 'dyld[')
+    output = '\n'.join(line for line in ENGINE_OUTPUT if any(term in line.lower() for term in error_terms))
     if isinstance(error, StartupFailure):
         reason = str(error)
     elif any(item['valid'] is False for item in signatures):
@@ -67,7 +73,7 @@ def write_report(error, app, player, logs):
         reason = 'The bundled player is missing. Reinstall the complete app.'
     elif 'Library not loaded:' in output or 'image not found' in output:
         reason = 'macOS could not load a player dependency.'
-    elif status is None and ENGINE_ATTEMPTS:
+    elif (ENGINE_FAILURE and 'timed out' in ENGINE_FAILURE.lower()) or (status is None and ENGINE_ATTEMPTS):
         reason = 'The player did not make its IPC connection before the startup timeout.'
     elif status is not None:
         reason = f'The player exited during startup (status {status}).'

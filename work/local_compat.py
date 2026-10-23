@@ -78,6 +78,15 @@ def apply(resources, package):
         original_popen(self, args, *positional, **keywords)
     subprocess.Popen.__init__ = popen
     import python_mpv_jsonipc
+    original_process_init = python_mpv_jsonipc.MPVProcess.__init__
+    def process_init(self, *args, **kwargs):
+        try:
+            original_process_init(self, *args, **kwargs)
+        except python_mpv_jsonipc.MPVProcessError as error:
+            import startup
+            startup.ENGINE_FAILURE = str(error)
+            raise
+    python_mpv_jsonipc.MPVProcess.__init__ = process_init
     original_mpv_init = python_mpv_jsonipc.MPV.__init__
     def mpv_init(self, *args, **kwargs):
         # One process per construction. Upstream may retry once without OSC;

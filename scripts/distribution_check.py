@@ -15,10 +15,10 @@ def command(*args, **kwargs):
     return subprocess.run(list(map(str,args)),check=True,**kwargs)
 
 
-def check(app, kind, evidence):
+def check(app, kind, evidence, upgrade=False):
     evidence.mkdir(parents=True,exist_ok=True)
     (evidence/'extracted-signatures.json').write_text(json.dumps(verify_bundle(app),indent=2)+'\n')
-    command(sys.executable,ROOT/'scripts/macos_smoke.py','--app',app,'--evidence',evidence)
+    command(sys.executable,ROOT/'scripts/macos_smoke.py','--app',app,'--evidence',evidence,*(('--upgrade-check',) if upgrade else ()))
     # A contaminated loader environment must not affect the actual application.
     poisoned={**os.environ, 'VK_DRIVER_FILES':'/opt/homebrew/share/vulkan/icd.d/MoltenVK_icd.json',
               'VK_ICD_FILENAMES':'/opt/homebrew/share/vulkan/icd.d/MoltenVK_icd.json',
@@ -36,7 +36,7 @@ def main():
         temporary=Path(directory)
         extracted=temporary/'zip'; extracted.mkdir()
         command('/usr/bin/ditto','-x','-k',out/f'Jellyfin-Player-{version}-Apple-Silicon.zip',extracted)
-        check(extracted/'Jellyfin Player.app','Update ZIP',evidence/'zip')
+        check(extracted/'Jellyfin Player.app','Update ZIP',evidence/'zip',upgrade=True)
         mount=temporary/'dmg'; mount.mkdir()
         command('/usr/bin/hdiutil','attach','-readonly','-nobrowse','-mountpoint',mount,out/f'Jellyfin-Player-macOS-{version}-Apple-Silicon.dmg')
         try:
