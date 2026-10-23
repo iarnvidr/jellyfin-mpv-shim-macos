@@ -12,6 +12,10 @@ signed, without Developer ID signing or notarization. Intel and other macOS
 versions have not been qualified. See [the original handoff](docs/REPOSITORY-HANDOFF.md)
 for the architecture, prior verification, and limitations.
 
+The [0.2.0 shipping plan](docs/PLAN-0.2.0.md) covers locked uv builds,
+self-contained packaging, Sparkle updates from GitHub Releases, and release
+acceptance checks.
+
 ## Build on Apple Silicon
 
 Install Xcode command line tools, Homebrew Python 3.13, and mpv:
