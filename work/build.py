@@ -38,15 +38,23 @@ shutil.copytree(mpvapp,mpv_dest,symlinks=True,ignore=shutil.ignore_patterns('_Co
 standalone=app/'Contents/Resources/mpv'
 standalone.unlink(missing_ok=True)
 standalone.symlink_to('mpv.app/Contents/MacOS/mpv')
-# Rewrite upstream absolute load commands (and Sparkle's absolute install IDs).
+# Relocate actual dependency load commands and dylib install IDs (LC_ID_DYLIB).
+install_name_tool=apple('install_name_tool'); otool=apple('otool')
 molten=mpv_dest/'Contents/Frameworks/libMoltenVK.dylib'
 if not molten.is_file(): raise SystemExit('mpv bundle is missing bundled MoltenVK')
-command(apple('install_name_tool'),'-change',str(Path('/opt')/'homebrew/opt/molten-vk/lib/libMoltenVK.dylib'), '@rpath/libMoltenVK.dylib',str(molten))
+subprocess.run([install_name_tool,'-change',str(Path('/opt')/'homebrew/opt/molten-vk/lib/libMoltenVK.dylib'),'@rpath/libMoltenVK.dylib',str(molten)],check=True)
 for binary in (app/'Contents/Frameworks/Sparkle.framework').rglob('*'):
- if binary.is_file():
-  deps=subprocess.run([apple('otool'),'-L',str(binary)],check=True,text=True,capture_output=True).stdout
-  if str(app) in deps:
-   command(apple('install_name_tool'),'-change',str(app), '@rpath',str(binary))
+ if not binary.is_file(): continue
+ lines=subprocess.run([otool,'-L',str(binary)],check=True,text=True,capture_output=True).stdout.splitlines()
+ # For a dylib, line zero is its LC_ID_DYLIB install name, not a load dependency.
+ # Executables have a "path:" header, which must never be rewritten either.
+ match=__import__('re').match(r'^\s*(.+?)\s+\(compatibility version ',lines[0]) if lines else None
+ if match and str(app) in match.group(1):
+  subprocess.run([install_name_tool,'-id','@rpath/'+binary.name,str(binary)],check=True)
+ for line in lines[1:]:
+  match=__import__('re').match(r'^\s*(.+?)\s+\(compatibility version ',line)
+  if match and str(app) in match.group(1):
+   subprocess.run([install_name_tool,'-change',match.group(1),'@rpath/'+Path(match.group(1)).name,str(binary)],check=True)
 
 for n in ['launch.py','mac_update.py','local_compat.py','runtime_update.py','managed_launch.py']:
  if (WORK/n).exists(): shutil.copy2(WORK/n,support/n)

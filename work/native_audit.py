@@ -17,8 +17,14 @@ def audit(app):
         try: kind=run('file','-b',path)
         except (OSError,subprocess.CalledProcessError): continue
         if 'Mach-O' not in kind: continue
-        rel=str(path.relative_to(app)); archs=run('lipo','-archs',path).split(); loads=run('otool','-L',path).splitlines()[1:]
-        deps=[line.strip().split(' (',1)[0] for line in loads]
+        rel=str(path.relative_to(app)); archs=run('lipo','-archs',path).split()
+        # otool -L starts with the image's own install ID for dylibs, while
+        # executables start with a header "path:" line. Neither is a dependency.
+        loads=run('otool','-L',path).splitlines()
+        deps=[]
+        for line in loads[1:]:
+            match=re.match(r'^\s*(.+?)\s+\(compatibility version ',line)
+            if match: deps.append(match.group(1))
         bad=[d for d in deps if not d.startswith('@rpath/') and not d.startswith('@loader_path/') and not d.startswith('@executable_path/') and not d.startswith(SYSTEM_PREFIXES)]
         if bad: problems.append(f'{rel}: non-relative/non-system linkage: {bad}')
         if 'arm64' not in archs: problems.append(f'{rel}: missing arm64 architecture: {archs}')
