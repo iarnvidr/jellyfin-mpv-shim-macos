@@ -294,7 +294,7 @@ def main():
             probe=run([str(probe_bin),str(proc.pid)],timeout=10)
             if probe.returncode==0:
                 state=json.loads(probe.stdout); windows=state['windows']
-                if windows: break
+                if windows and (not state.get('windowNames') or any('Jellyfin Player' in name for name in state['windowNames'])): break
             # A launcher started as a raw executable need not be registered with
             # LaunchServices, so NSRunningApplication may return nil for its PID.
             # Discover and probe actual descendant PIDs on every poll instead.
@@ -311,7 +311,15 @@ def main():
                     candidate_state=json.loads(candidate_probe.stdout); owner_details.append(candidate_state)
                     if candidate_state.get('windows'):
                         windows=candidate_state['windows']; state=candidate_state; break
-            if windows: break
+            if windows:
+                # mpv creates an initially untitled/default-titled window before
+                # applying the client's UI properties. Wait for branding, just
+                # as we wait for the first visible window within this deadline.
+                if state.get('windowNames') and not any('Jellyfin Player' in name for name in state['windowNames']):
+                    windows=0
+                    time.sleep(.2)
+                    continue
+                break
             time.sleep(1)
         (evidence/'window-probe-result.json').write_text(json.dumps({'launcherPID':proc.pid,'ownerDetails':owner_details},indent=2)+'\n')
         if not windows: raise RuntimeError('native CGWindowList probe found no app-owned descendant window')

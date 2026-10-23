@@ -33,6 +33,9 @@ static void applyPlayerBranding(void) {
     NSImage *icon = iconPath ? [[NSImage alloc] initWithContentsOfFile:iconPath] : nil;
     NSProcessInfo.processInfo.processName = @"Jellyfin Player";
     if (icon) NSApp.applicationIconImage = icon;
+    for (NSWindow *window in NSApp.windows) {
+        if ([window.title isEqualToString:@"mpv"]) window.title = @"Jellyfin Player";
+    }
     NSData *expectedPixels = iconPixels(icon);
     NSData *actualPixels = iconPixels(NSApp.applicationIconImage);
     // The stock engine hardcodes these labels even when it is a named bundle.
@@ -128,6 +131,10 @@ __attribute__((constructor)) static void installNativeScrolling(void) {
     @autoreleasepool {
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidFinishLaunchingNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { applyPlayerBranding(); }];
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { applyPlayerBranding(); }];
+        [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidBecomeKeyNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+            NSWindow *window = note.object;
+            if ([window.title isEqualToString:@"mpv"]) window.title = @"Jellyfin Player";
+        }];
         NSArray<NSString *> *arguments = NSProcessInfo.processInfo.arguments;
         for (NSUInteger i = 0; i < arguments.count; i++) {
             NSString *arg = arguments[i];
