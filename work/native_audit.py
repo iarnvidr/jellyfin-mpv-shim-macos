@@ -29,6 +29,16 @@ def audit(app):
         if bad: problems.append(f'{rel}: non-relative/non-system linkage: {bad}')
         if 'arm64' not in archs: problems.append(f'{rel}: missing arm64 architecture: {archs}')
         load=run('otool','-l',path)
+        # Keep dylib identity distinct from actual LC_LOAD_* dependencies: -L
+        # reports the identity as its first entry, which is not a load command.
+        install_ids=[]
+        load_commands=[]
+        for block in re.split(r'(?=\\nLoad command \\d+)', load):
+            cmd=re.search(r'\\bcmd (LC_[A-Z0-9_]+)', block)
+            name=re.search(r'\\bname (.+?) \\(offset \\d+\\)', block)
+            if not cmd or not name: continue
+            if cmd.group(1) == 'LC_ID_DYLIB': install_ids.append(name.group(1))
+            elif cmd.group(1).startswith('LC_LOAD_'): load_commands.append(name.group(1))
         # Only LC_BUILD_VERSION's minos is a deployment target; LC_VERSION_MIN_*
         # uses version, while dylib LC_ID_DYLIB also has a version field.
         targets=[]
@@ -41,7 +51,7 @@ def audit(app):
                 if m: targets.append(m.group(1))
         if not targets: problems.append(f'{rel}: deployment target unavailable')
         elif any(tuple(map(int,(x.split('.')+['0'])[:2])) > (15,0) for x in targets): problems.append(f'{rel}: minimum OS exceeds macOS 15: {targets}')
-        binaries.append({'path':rel,'architectures':archs,'minimum_os':targets or None,'dependencies':deps})
+        binaries.append({'path':rel,'architectures':archs,'minimum_os':targets or None,'install_ids':install_ids,'load_commands':load_commands,'dependencies':deps})
         files.append(rel)
     inventory=[]
     for p in sorted(app.rglob('*')):

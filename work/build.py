@@ -42,7 +42,16 @@ standalone.symlink_to('mpv.app/Contents/MacOS/mpv')
 install_name_tool=apple('install_name_tool'); otool=apple('otool')
 molten=mpv_dest/'Contents/Frameworks/libMoltenVK.dylib'
 if not molten.is_file(): raise SystemExit('mpv bundle is missing bundled MoltenVK')
-subprocess.run([install_name_tool,'-change',str(Path('/opt')/'homebrew/opt/molten-vk/lib/libMoltenVK.dylib'),'@rpath/libMoltenVK.dylib',str(molten)],check=True)
+subprocess.run([install_name_tool,'-id','@rpath/libMoltenVK.dylib',str(molten)],check=True)
+# Rewrite only real load commands, recursively in the retained original mpv app;
+# never treat LC_ID_DYLIB as a dependency or touch a redundant duplicate.
+for binary in mpv_dest.rglob('*'):
+ if not binary.is_file(): continue
+ lines=subprocess.run([otool,'-L',str(binary)],check=True,text=True,capture_output=True).stdout.splitlines()
+ for line in lines[1:]:
+  match=__import__('re').match(r'^\\s*(.+?)\\s+\\(compatibility version ',line)
+  if match and Path(match.group(1)).name=='libMoltenVK.dylib' and match.group(1).startswith('/'):
+   subprocess.run([install_name_tool,'-change',match.group(1),'@rpath/libMoltenVK.dylib',str(binary)],check=True)
 for binary in (app/'Contents/Frameworks/Sparkle.framework').rglob('*'):
  if not binary.is_file(): continue
  lines=subprocess.run([otool,'-L',str(binary)],check=True,text=True,capture_output=True).stdout.splitlines()
