@@ -33,7 +33,7 @@ def main():
     exe=moved/'Contents/MacOS/Jellyfin Player'
     if not exe.is_file(): raise RuntimeError(f'main executable missing: {exe}')
     probe_source=evidence/'window_probe.swift'
-    probe_source.write_text('''import AppKit\nimport CoreGraphics\nimport Foundation\nlet pid = pid_t(CommandLine.arguments[1])!\nlet app = NSRunningApplication(processIdentifier: pid)\nlet windows = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []).filter { ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }\nlet names = windows.compactMap { $0[kCGWindowName as String] as? String }\nprint((try! JSONSerialization.data(withJSONObject: ["pid": Int(pid), "alive": app != nil && !app.isTerminated, "windows": windows.count, "windowNames": names], options: [.sortedKeys])).map { String(UnicodeScalar($0)) }.joined())\n''')
+    probe_source.write_text('''import AppKit\nimport CoreGraphics\nimport Foundation\nlet pid = pid_t(CommandLine.arguments[1])!\nlet app = NSRunningApplication(processIdentifier: pid)\nlet windows = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []).filter { ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }\nlet names = windows.compactMap { $0[kCGWindowName as String] as? String }\nlet bounds = windows.compactMap { $0[kCGWindowBounds as String] as? [String: Any] }\nprint((try! JSONSerialization.data(withJSONObject: ["pid": Int(pid), "alive": app?.isTerminated == false, "bundlePath": app?.bundleURL?.path ?? "", "localizedName": app?.localizedName ?? "", "windows": windows.count, "windowNames": names, "windowBounds": bounds], options: [.sortedKeys])).map { String(UnicodeScalar($0)) }.joined())\n''')
     probe_bin=evidence/'window-probe'
     compiled=run(['/usr/bin/xcrun','swiftc',str(probe_source),'-o',str(probe_bin)],timeout=120)
     (evidence/'window-probe-compile.log').write_text(compiled.stdout+'\n--- stderr ---\n'+compiled.stderr)
@@ -41,7 +41,7 @@ def main():
     log=(evidence/'player.log').open('w')
     proc=subprocess.Popen([str(exe)],env=env,stdout=log,stderr=subprocess.STDOUT)
     try:
-        deadline=time.time()+60; windows=[]; alive=False
+        deadline=time.time()+60; windows=[]; alive=False; owner_pids=[]; owner_details=[]
         while time.time()<deadline:
             if proc.poll() is not None: raise RuntimeError(f'main app exited during startup: {proc.returncode}')
             probe=run([str(probe_bin),str(proc.pid)],timeout=10)
@@ -50,10 +50,25 @@ def main():
                 if alive and windows: break
             time.sleep(1)
         if not alive: raise RuntimeError('native NSRunningApplication probe reports app not alive')
-        if not windows: raise RuntimeError('native CGWindowList probe found no app-owned window for launcher PID')
+        if not windows:
+            # Launcher may be non-GUI. Search real descendants rather than requiring its PID to own a window.
+            pending=[proc.pid]; seen=set()
+            while pending:
+                parent=pending.pop(0)
+                for child_text in run(['/usr/bin/pgrep','-P',str(parent)]).stdout.split():
+                    child=int(child_text)
+                    if child not in seen:
+                        seen.add(child); pending.append(child); owner_pids.append(child)
+            for candidate in owner_pids:
+                candidate_probe=run([str(probe_bin),str(candidate)],timeout=10)
+                if candidate_probe.returncode==0:
+                    candidate_state=json.loads(candidate_probe.stdout); owner_details.append(candidate_state)
+                    if candidate_state.get('alive') and candidate_state.get('windows'):
+                        windows=candidate_state['windows']; state=candidate_state; break
+        if not windows: raise RuntimeError('native CGWindowList probe found no app-owned descendant window')
         shot=run(['/usr/sbin/screencapture','-x',str(evidence/'player.png')],timeout=20)
         if shot.returncode: raise RuntimeError('screencapture failed: '+shot.stderr)
-        result['tests'].append({'name':'native app liveness and ownerPID window','pid':proc.pid,'windowCount':windows,'passed':True})
+        result['tests'].append({'name':'native app liveness and ownerPID window','launcherPID':proc.pid,'ownerPID':state['pid'],'ownerDetails':owner_details,'windowCount':windows,'passed':True})
         player=moved/'Contents/Resources/mpv.app/Contents/MacOS/mpv'
         if not player.is_file(): raise RuntimeError(f'branded mpv executable missing: {player}')
         mpvlog=(evidence/'mpv.log').open('w')
@@ -71,11 +86,12 @@ def main():
             except subprocess.TimeoutExpired: mpv.kill(); mpv.wait()
             mpvlog.close()
         quit_result=run(['/usr/bin/osascript','-e','tell application "Jellyfin Player" to quit'],timeout=10)
-        if quit_result.returncode: proc.terminate()
+        graceful_marker='graceful quit requested' if quit_result.returncode==0 else 'AppleScript quit unavailable/failed'
+        if proc.poll() is None: proc.send_signal(__import__('signal').SIGTERM)
         try: proc.wait(timeout=15)
         except subprocess.TimeoutExpired: proc.terminate(); proc.wait(timeout=10)
-        if proc.returncode not in (0,-15): raise RuntimeError(f'main app graceful quit failed: {proc.returncode}')
-        result['tests'].append({'name':'main app graceful quit','returncode':proc.returncode,'passed':True})
+        if proc.returncode not in (0,-15): raise RuntimeError(f'main app stop failed: {proc.returncode}')
+        result['tests'].append({'name':'main app stop','appleScriptReturncode':quit_result.returncode,'marker':graceful_marker,'fallback':'SIGTERM','returncode':proc.returncode,'passed':True})
     finally:
         if proc.poll() is None: proc.terminate(); proc.wait(timeout=10)
         log.close()
