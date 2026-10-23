@@ -1,26 +1,39 @@
 import importlib.util
+import io
+import json
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 SCRIPT = Path(__file__).parents[1] / 'scripts' / 'macos_smoke.py'
 
 
 class MacOSSmokeTests(unittest.TestCase):
-    def test_smoke_has_native_assertions_and_real_executables(self):
-        source = SCRIPT.read_text()
-        self.assertIn("'--dyld-smoke'", source)
-        self.assertIn('Contents/Frameworks/Sparkle.framework/', source)
-        self.assertIn('Contents/MacOS/Jellyfin Player', source)
-        self.assertIn('Contents/Resources/mpv.app/Contents/MacOS/mpv', source)
-        self.assertIn('lavfi://testsrc', source)
-        self.assertIn('screencapture', source)
-        self.assertIn('CGWindowListCopyWindowInfo', source)
-        self.assertIn('NSRunningApplication', source)
-        self.assertIn('actual descendant PIDs', source)
-        self.assertIn('alive=True', source)
-        self.assertIn("run(['/usr/bin/pgrep','-P',str(parent)])", source)
-        self.assertIn('xcrun',' '.join(source.split()))
-        self.assertIn("root/'work/dist/Jellyfin Player.app'", source)
+    def test_ipc_matches_property_response_among_events_and_other_requests(self):
+        spec = importlib.util.spec_from_file_location('macos_smoke', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        connection = MagicMock()
+        connection.makefile.return_value = io.BytesIO(
+            b'{"event":"start-file"}\n'
+            b'{"request_id":2,"error":"success","data":"unrelated"}\n'
+            b'{"request_id":1,"error":"success","data":{"w":160,"h":90}}\n')
+        with patch.object(module.socket, 'socket') as factory:
+            factory.return_value.__enter__.return_value = connection
+            self.assertEqual(module.ipc_property('/tmp/test.sock', 'video-params'), {'w':160,'h':90})
+        request = json.loads(connection.sendall.call_args.args[0])
+        self.assertEqual(request['command'], ['get_property', 'video-params'])
+
+    def test_unavailable_property_cannot_count_as_playback(self):
+        spec = importlib.util.spec_from_file_location('macos_smoke', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        connection = MagicMock()
+        connection.makefile.return_value = io.BytesIO(
+            b'{"request_id":1,"error":"property unavailable"}\n')
+        with patch.object(module.socket, 'socket') as factory:
+            factory.return_value.__enter__.return_value = connection
+            self.assertIsNone(module.ipc_property('/tmp/test.sock', 'time-pos'))
 
     def test_non_macos_is_explicitly_unsupported(self):
         spec = importlib.util.spec_from_file_location('macos_smoke', SCRIPT)

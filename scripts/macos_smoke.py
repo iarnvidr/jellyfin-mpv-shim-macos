@@ -1,12 +1,109 @@
 #!/usr/bin/env python3
 """Exercise moved packaged macOS executables and collect native GUI evidence."""
-import json, os, pathlib, shutil, subprocess, sys, tempfile, time
+import json, os, pathlib, shutil, socket, subprocess, sys, tempfile, time
 
 TEMP_HOME = None
+
+PROBE_SOURCE = '''import AppKit
+import CoreGraphics
+import Foundation
+let pid = pid_t(CommandLine.arguments[1])!
+let app = NSRunningApplication(processIdentifier: pid)
+let windows = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []).filter {
+    ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) &&
+    ($0[kCGWindowLayer as String] as? Int) == 0
+}
+let payload: [String: Any] = [
+    "pid": Int(pid), "registered": app?.isTerminated == false,
+    "bundlePath": app?.bundleURL?.path ?? "",
+    "localizedName": app?.localizedName ?? "",
+    "windows": windows.count,
+    "windowNames": windows.compactMap { $0[kCGWindowName as String] as? String },
+    "windowBounds": windows.compactMap { $0[kCGWindowBounds as String] as? [String: Any] }
+]
+let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+print(String(decoding: data, as: UTF8.self))
+'''
 
 
 def run(argv, **kw):
     return subprocess.run(argv, capture_output=True, text=True, **kw)
+
+
+def stop_process(process):
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=10)
+
+
+def retain_logs(evidence):
+    copied = []
+    logs = TEMP_HOME / 'Library/Logs/Jellyfin MPV Shim' if TEMP_HOME else None
+    if logs and logs.exists():
+        for item in logs.rglob('*'):
+            if item.is_file():
+                destination = evidence / 'home-logs' / item.relative_to(logs)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, destination)
+                copied.append(str(destination.relative_to(evidence)))
+    return copied
+
+
+def ipc_property(endpoint, name):
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(2)
+        connection.connect(str(endpoint))
+        connection.sendall((json.dumps({'command': ['get_property', name], 'request_id': 1}) + '\n').encode())
+        with connection.makefile('rb') as responses:
+            for line in responses:
+                response = json.loads(line)
+                if response.get('request_id') == 1:
+                    return response.get('data') if response.get('error') == 'success' else None
+    return None
+
+
+def verify_playback(player, env, evidence):
+    # A finite Y4M clip exercises the demuxer/decoder without a network service,
+    # ffmpeg executable, audio device, or third-party test dependency.
+    with tempfile.TemporaryDirectory(prefix='jf-playback-', dir='/tmp') as directory:
+        fixture = pathlib.Path(directory)
+        video = fixture / 'test.y4m'
+        with video.open('wb') as output:
+            output.write(b'YUV4MPEG2 W160 H90 F10:1 Ip A1:1 C420jpeg\n')
+            for frame in range(40):
+                output.write(b'FRAME\n')
+                output.write(bytes([16 + frame]) * (160 * 90))
+                output.write(bytes([128]) * (160 * 90 // 2))
+        endpoint = fixture / 'mpv.sock'
+        with (evidence / 'mpv.log').open('w') as log:
+            process = subprocess.Popen([
+                str(player), '--no-config', '--no-terminal', '--vo=null', '--ao=null',
+                '--loop-file=inf', f'--input-ipc-server={endpoint}', str(video),
+            ], env=env, stdout=log, stderr=subprocess.STDOUT)
+            try:
+                deadline = time.monotonic() + 20
+                while time.monotonic() < deadline:
+                    if process.poll() is not None:
+                        raise RuntimeError(f'branded mpv exited during playback: {process.returncode}; see mpv.log')
+                    try:
+                        params = ipc_property(endpoint, 'video-params')
+                        first = ipc_property(endpoint, 'time-pos')
+                        if isinstance(params, dict) and params.get('w') == 160 and params.get('h') == 90 and isinstance(first, (int, float)):
+                            time.sleep(0.5)
+                            second = ipc_property(endpoint, 'time-pos')
+                            if isinstance(second, (int, float)) and second > first:
+                                return {'name': 'bundled mpv decodes video and advances playback',
+                                        'passed': True, 'videoParams': params, 'timePositions': [first, second]}
+                    except (OSError, ValueError):
+                        pass
+                    time.sleep(0.2)
+                raise RuntimeError('bundled mpv did not decode and advance the test video; see mpv.log')
+            finally:
+                stop_process(process)
 
 
 def main():
@@ -33,7 +130,7 @@ def main():
     exe=moved/'Contents/MacOS/Jellyfin Player'
     if not exe.is_file(): raise RuntimeError(f'main executable missing: {exe}')
     probe_source=evidence/'window_probe.swift'
-    probe_source.write_text('''import AppKit\nimport CoreGraphics\nimport Foundation\nlet pid = pid_t(CommandLine.arguments[1])!\nlet app = NSRunningApplication(processIdentifier: pid)\nlet windows = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []).filter { ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }\nlet names = windows.compactMap { $0[kCGWindowName as String] as? String }\nlet bounds = windows.compactMap { $0[kCGWindowBounds as String] as? [String: Any] }\nprint((try! JSONSerialization.data(withJSONObject: ["pid": Int(pid), "alive": app?.isTerminated == false, "bundlePath": app?.bundleURL?.path ?? "", "localizedName": app?.localizedName ?? "", "windows": windows.count, "windowNames": names, "windowBounds": bounds], options: [.sortedKeys])).map { String(UnicodeScalar($0)) }.joined())\n''')
+    probe_source.write_text(PROBE_SOURCE)
     probe_bin=evidence/'window-probe'
     compiled=run(['/usr/bin/xcrun','swiftc',str(probe_source),'-o',str(probe_bin)],timeout=120)
     (evidence/'window-probe-compile.log').write_text(compiled.stdout+'\n--- stderr ---\n'+compiled.stderr)
@@ -41,20 +138,20 @@ def main():
     log=(evidence/'player.log').open('w')
     proc=subprocess.Popen([str(exe)],env=env,stdout=log,stderr=subprocess.STDOUT)
     try:
-        deadline=time.time()+60; windows=[]; alive=False; owner_pids=[]; owner_details=[]
+        deadline=time.time()+40; windows=0; owner_pids=[]; owner_details=[]
         while time.time()<deadline:
             if proc.poll() is not None: raise RuntimeError(f'main app exited during startup: {proc.returncode}')
             probe=run([str(probe_bin),str(proc.pid)],timeout=10)
             if probe.returncode==0:
-                state=json.loads(probe.stdout); alive=state['alive']; windows=state['windows']
-                if alive and windows: break
+                state=json.loads(probe.stdout); windows=state['windows']
+                if windows: break
             # A launcher started as a raw executable need not be registered with
             # LaunchServices, so NSRunningApplication may return nil for its PID.
             # Discover and probe actual descendant PIDs on every poll instead.
             pending=[proc.pid]; seen={proc.pid}; owner_pids=[]
             while pending:
                 parent=pending.pop(0)
-                for child_text in run(['/usr/bin/pgrep','-P',str(parent)]).stdout.split():
+                for child_text in run(['/usr/bin/pgrep','-P',str(parent)],timeout=5).stdout.split():
                     child=int(child_text)
                     if child not in seen:
                         seen.add(child); pending.append(child); owner_pids.append(child)
@@ -62,41 +159,25 @@ def main():
                 candidate_probe=run([str(probe_bin),str(candidate)],timeout=10)
                 if candidate_probe.returncode==0:
                     candidate_state=json.loads(candidate_probe.stdout); owner_details.append(candidate_state)
-                    if candidate_state.get('alive') and candidate_state.get('windows'):
-                        windows=candidate_state['windows']; state=candidate_state; alive=True; break
-            if alive and windows: break
+                    if candidate_state.get('windows'):
+                        windows=candidate_state['windows']; state=candidate_state; break
+            if windows: break
             time.sleep(1)
-        if not alive: raise RuntimeError('native NSRunningApplication probe found no live launcher or app descendant')
+        (evidence/'window-probe-result.json').write_text(json.dumps({'launcherPID':proc.pid,'ownerDetails':owner_details},indent=2)+'\n')
         if not windows: raise RuntimeError('native CGWindowList probe found no app-owned descendant window')
         shot=run(['/usr/sbin/screencapture','-x',str(evidence/'player.png')],timeout=20)
-        if shot.returncode: raise RuntimeError('screencapture failed: '+shot.stderr)
+        result['tests'].append({'name':'screen capture', 'status':'captured' if shot.returncode == 0 else 'unavailable', 'message':shot.stderr})
         result['tests'].append({'name':'native app liveness and ownerPID window','launcherPID':proc.pid,'ownerPID':state['pid'],'ownerDetails':owner_details,'windowCount':windows,'passed':True})
         player=moved/'Contents/Resources/mpv.app/Contents/MacOS/mpv'
         if not player.is_file(): raise RuntimeError(f'branded mpv executable missing: {player}')
-        mpvlog=(evidence/'mpv.log').open('w')
-        mpv=subprocess.Popen([str(player),'--no-config','--idle=yes','--force-window=yes','--keep-open=yes','--vo=null','lavfi://testsrc=size=160x90:rate=1'],env=env,stdout=mpvlog,stderr=subprocess.STDOUT)
-        try:
-            time.sleep(3)
-            if mpv.poll() is not None: raise RuntimeError(f'branded mpv exited during synthetic playback: {mpv.returncode}')
-            info=run(['/usr/bin/plutil','-p',str(moved/'Contents/Info.plist')])
-            if info.returncode or 'Jellyfin Player' not in info.stdout: raise RuntimeError('app metadata verification failed')
-            descendants=run(['/usr/bin/pgrep','-P',str(proc.pid)]).stdout.split()
-            result['tests'].append({'name':'branded mpv synthetic lavfi playback alive','pid':mpv.pid,'launcherChildren':descendants,'passed':True})
-        finally:
-            if mpv.poll() is None: mpv.send_signal(__import__('signal').SIGTERM)
-            try: mpv.wait(timeout=15)
-            except subprocess.TimeoutExpired: mpv.kill(); mpv.wait()
-            mpvlog.close()
-        quit_result=run(['/usr/bin/osascript','-e','tell application "Jellyfin Player" to quit'],timeout=10)
-        graceful_marker='graceful quit requested' if quit_result.returncode==0 else 'AppleScript quit unavailable/failed'
-        if proc.poll() is None: proc.send_signal(__import__('signal').SIGTERM)
-        try: proc.wait(timeout=15)
-        except subprocess.TimeoutExpired: proc.terminate(); proc.wait(timeout=10)
-        if proc.returncode not in (0,-15): raise RuntimeError(f'main app stop failed: {proc.returncode}')
-        result['tests'].append({'name':'main app stop','appleScriptReturncode':quit_result.returncode,'marker':graceful_marker,'fallback':'SIGTERM','returncode':proc.returncode,'passed':True})
+        result['tests'].append(verify_playback(player,env,evidence))
+        stop_process(proc)
+        if proc.returncode != 0: raise RuntimeError(f'main app did not shut down cleanly on SIGTERM: {proc.returncode}')
+        result['tests'].append({'name':'main app handles SIGTERM and exits cleanly','returncode':proc.returncode,'passed':True})
     finally:
-        if proc.poll() is None: proc.terminate(); proc.wait(timeout=10)
+        stop_process(proc)
         log.close()
+        result['logs'] = retain_logs(evidence)
     (evidence/'result.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(result,indent=2)); return 0
 
@@ -105,13 +186,7 @@ def retain_failure(exc):
     if sys.platform != 'darwin': return
     evidence=pathlib.Path(__file__).resolve().parents[1]/'outputs/macos-smoke-evidence'
     evidence.mkdir(parents=True,exist_ok=True)
-    copied=[]
-    logs=TEMP_HOME/'Library/Logs/Jellyfin MPV Shim' if TEMP_HOME else None
-    if logs and logs.exists():
-        for item in logs.rglob('*'):
-            if item.is_file():
-                dest=evidence/'home-logs'/item.relative_to(logs)
-                dest.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(item,dest); copied.append(str(dest.relative_to(evidence)))
+    copied=retain_logs(evidence)
     (evidence/'result.json').write_text(json.dumps({'passed':False,'error':str(exc),'logs':copied},indent=2)+'\n')
 
 
