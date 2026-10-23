@@ -1,6 +1,6 @@
 # Plan: ship macOS wrapper 0.2.0
 
-Status: planned; no packaging or updater changes implemented yet.
+Status: implementation in progress; not released or qualified. Preparation includes uv project/lock files and work toward build/runtime/updater changes, but the scope below is not complete. No release gate is claimed passed. Track concrete qualification evidence in [the ledger](RELEASE-QUALIFICATION-0.2.0.md).
 
 ## Product outcome
 
@@ -183,9 +183,11 @@ Acceptance:
 
 ## 6. Qualify and ship 0.2.0
 
+**Current status: all interactive and release acceptance gates pending.** No release claim is made. The historical prototype handoff is retained unchanged and is not evidence for 0.2.0. See [qualification ledger](RELEASE-QUALIFICATION-0.2.0.md), [installation and recovery](INSTALL-AND-RECOVERY.md), and [third-party notice policy](../THIRD_PARTY.md). In particular, the one-time 0.1.0 upgrade is manual, first-open behavior is ad-hoc/unnotarized and must be observed, rollback is manual, signing-key backup is a procedure only (setup not claimed), and the interactive OS/playback/update matrix remains pending.
+
 Release checklist:
 
-- [ ] Locked uv build and upstream integration checks pass from clean checkout.
+- [ ] Locked uv build and upstream integration checks pass from clean checkout. **Pending; not claimed passed.**
 - [ ] Fresh install on a Mac with no developer tooling passes.
 - [ ] macOS 15 and the user's current macOS receive an interactive smoke test.
 - [ ] 0.1.0 manual upgrade retains settings and ignores all legacy runtime state.

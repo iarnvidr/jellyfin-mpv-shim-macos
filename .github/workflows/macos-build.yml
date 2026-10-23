@@ -1,6 +1,9 @@
 name: macOS build
 on:
   workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
 permissions:
   contents: read
 jobs:
@@ -12,17 +15,28 @@ jobs:
           submodules: recursive
       - name: Verify Apple Silicon runner
         run: test "$(uname -m)" = arm64
-      - name: Install build prerequisites
-        run: brew install python@3.13 mpv
-      - run: /opt/homebrew/bin/python3.13 scripts/prepare.py
-      - run: /opt/homebrew/bin/python3.13 -m venv work/build-env
-      - run: work/build-env/bin/python -m pip install -r requirements-build.txt
-      - run: work/build-env/bin/python -m pip install --no-deps ./work/source
-      - run: work/build-env/bin/python scripts/check.py
-      - run: work/build-env/bin/python work/build.py
-      - run: work/build-env/bin/python work/package.py
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.1'
+          enable-cache: true
+      - name: Install pinned Python and native dependency
+        run: |
+          uv python install
+          brew install mpv
+      - name: Prepare resources
+        run: uv run --locked --no-sync python scripts/prepare.py
+      - name: Install locked build environment
+        run: uv sync --locked --all-groups
+      - name: Verify lock unchanged
+        run: git diff --exit-code -- uv.lock
+      - name: Integration checks
+        run: uv run --locked python scripts/check.py
+      - name: Build app
+        run: uv run --locked python work/build.py
+      - name: Package and verify
+        run: uv run --locked python work/package.py
       - uses: actions/upload-artifact@v4
         with:
-          name: Jellyfin-MPV-Shim-macOS-Apple-Silicon-development
+          name: Jellyfin-MPV-Shim-macOS-Apple-Silicon
           path: outputs/*.dmg
           if-no-files-found: error

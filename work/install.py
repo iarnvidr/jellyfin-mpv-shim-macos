@@ -11,8 +11,7 @@ if target.exists():
     subprocess.run([executable, 'stop'], timeout=15, capture_output=True)
     for _ in range(100):
         processes = subprocess.check_output(['ps', '-axo', 'command='], text=True).splitlines()
-        if not any(command == executable or ('managed_launch.py' in command and executable in command)
-                   for command in processes):
+        if not any(command == executable for command in processes):
             break
         time.sleep(0.1)
     else:

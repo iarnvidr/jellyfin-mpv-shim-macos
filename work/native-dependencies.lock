@@ -1,0 +1,10 @@
+# Native distribution inputs. Values are deliberately explicit; update only with review.
+# SHA-256 verified from Sparkle's official 2.10.0 release tarball.
+SPARKLE_VERSION=2.10.0
+SPARKLE_URL=https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz
+SPARKLE_SHA256=c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c
+# mpv is a source-built dependency, not Homebrew's mutable bottle. CI must supply this
+# pinned archive and its independently reviewed digest before build is enabled.
+MPV_SOURCE=https://formulae.brew.sh/api/formula/mpv.json
+MPV_REVISION=0.41.0 (arm64_sequoia bottle)
+MPV_ARCHIVE_SHA256=6bba3d36c339ed518ce497f95dcd3bb769b4cce70e8064d65fd8fcb0a9c175cb

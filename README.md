@@ -1,82 +1,34 @@
 # Jellyfin MPV Shim for macOS
 
-An unofficial Apple Silicon packaging and integration project for
-[Jellyfin MPV Shim](https://github.com/jellyfin/jellyfin-mpv-shim).
-It adds a Finder-launchable app, native trackpad scrolling, Mac window adjustments,
-and a native component updater while keeping the upstream client separate.
+Unofficial Apple Silicon macOS packaging and integration for [Jellyfin MPV Shim](https://github.com/jellyfin/jellyfin-mpv-shim). The wrapper adds Finder launching, Mac window/trackpad integration, and (planned) whole-app updates while keeping the upstream client separate.
 
-**Status: development prototype.** The original local build was exercised on
-Apple Silicon/macOS 27.0.1. Runtime activation/rollback has an unresolved lifecycle
-issue; downloaded components can lose their active selection. Builds are ad-hoc
-signed, without Developer ID signing or notarization. Intel and other macOS
-versions have not been qualified. See [the original handoff](docs/REPOSITORY-HANDOFF.md)
-for the architecture, prior verification, and limitations.
+**0.2.0 preparation; not released or qualified.** The version is a preparation identifier, not a release claim. Automated build/runtime changes are in progress. No release gates are claimed passed. See the [shipping plan](docs/PLAN-0.2.0.md), [qualification ledger](docs/RELEASE-QUALIFICATION-0.2.0.md), [installation/recovery guide](docs/INSTALL-AND-RECOVERY.md), and [third-party notices policy](THIRD_PARTY.md). Historical prototype findings remain in the [original handoff](docs/REPOSITORY-HANDOFF.md), which is retained unchanged.
 
-The [0.2.0 shipping plan](docs/PLAN-0.2.0.md) covers locked uv builds,
-self-contained packaging, Sparkle updates from GitHub Releases, and release
-acceptance checks.
+## User-facing status
 
-## Build on Apple Silicon
+The intended 0.2.0 product is a self-contained app: no terminal, Homebrew, Python, uv, or package installation should be needed on the user's Mac. That is a target, not yet evidence. The intended initial architecture is Apple Silicon and macOS 15+, subject to binary minimum-OS inspection and interactive testing. Intel is not in scope. The prototype was ad-hoc signed, not Developer ID signed or notarized; expect macOS first-open approval and use only the per-app approval flow described in the recovery guide. Do not disable Gatekeeper system-wide. The exact first-open prompt has not been qualified.
 
-Install Xcode command line tools, Homebrew Python 3.13, and mpv:
+**0.1.0 users:** this transition requires one manual download/install of 0.2.0; the old component updater cannot update the wrapper. Preserve settings and do not delete legacy `Updates/` or `Runtimes/` content as a migration shortcut. See [upgrade and recovery](docs/INSTALL-AND-RECOVERY.md). Sparkle whole-app updating is planned and itself remains unqualified.
+
+## Development setup (maintainers)
+
+The project anticipates pinned uv 0.13.1 and Python 3.13, with the upstream client as a pinned local source. These are developer/build tools, not user runtime requirements. From a clean checkout on macOS, after installing Xcode command line tools and obtaining required native build inputs:
 
 ```sh
-xcode-select --install
-brew install python@3.13 mpv
-git clone --recurse-submodules https://github.com/iarnvidr/jellyfin-mpv-shim-macos.git
-cd jellyfin-mpv-shim-macos
-python3.13 scripts/prepare.py
-python3.13 -m venv work/build-env
-work/build-env/bin/python -m pip install -r requirements-build.txt
-work/build-env/bin/python -m pip install --no-deps ./work/source
-work/build-env/bin/python scripts/check.py
-work/build-env/bin/python work/build.py
-work/build-env/bin/python work/package.py
+uv sync --locked --group build
+uv run --locked python scripts/prepare.py
+uv run --locked python scripts/check.py
+uv run --locked python work/build.py
+uv run --locked python work/package.py
 ```
 
-The app is in `work/dist/`; the DMG is in `outputs/`. Drag the app into
-Applications. `work/install.py` is an optional developer convenience that stops
-and replaces `/Applications/Jellyfin MPV Shim.app`, retains a backup, and opens it.
-Run it only when you intend to replace your installed app.
+These commands are preparation instructions, not evidence that a release build or packaged app has passed qualification. See the plan for unresolved native mpv provenance and artifact audits. The manual macOS workflow is development automation, not release qualification.
 
-The manual **macOS build** Actions workflow produces a development DMG artifact.
-CI runs syntax and upstream integration checks on each push and pull request.
-A successful build does not qualify the application for release.
+## Source and versioning
 
-## Source and versions
+- `work/`: wrapper, native integration, and build/package scripts.
+- `work/source`: upstream submodule, baseline `v3.1.0` (`7e9fd292459358dde12f054c24f79642ab5ec98f`).
+- `vendor/default-shader-pack`: shader submodule, baseline `v3.0.0` (`9ab0195ece699680b422ec5bb2216d45e14c82b1`).
+- `VERSION`: wrapper preparation version (`0.2.0`); distinct from upstream and component versions.
 
-- `work/`: original Python wrapper, Swift updater, Objective-C scroll bridge,
-  and build/package scripts. The prototype layout is retained deliberately.
-- `work/source`: upstream submodule at `v3.1.0`, commit
-  `7e9fd292459358dde12f054c24f79642ab5ec98f`.
-- `vendor/default-shader-pack`: shader submodule at `v3.0.0`, commit
-  `9ab0195ece699680b422ec5bb2216d45e14c82b1`.
-- `scripts/prepare.py`: verifies pins and copies shader assets into upstream's
-  ignored resource directory before installation.
-- `VERSION`: Mac wrapper version. Upstream and downloaded component versions
-  are separate; in-app updates do not replace wrapper or native integration code.
-
-To update upstream, change the submodule commit and the matching pin in
-`scripts/prepare.py`, rerun preparation, reinstall upstream, and run checks.
-The wrapper rejects incompatible renderer/API changes. Keep upstream changes in
-the submodule or contribute them upstream; keep Mac integration in this repo.
-
-`requirements-build.txt` preserves the prototype's exact environment versions,
-with the developer-specific local source URL removed. It is not hash-locked.
-Homebrew mpv and its libraries are resolved at build time. Runtime updates also
-resolve Python dependencies dynamically. Builds are not bit-for-bit reproducible.
-
-## Next engineering work
-
-1. Reproduce and fix runtime ownership, health reporting, shutdown, and rollback.
-2. Test fresh installation, offline launch, app relocation, update interruption,
-   multiple launches, scrolling, fullscreen, and playback on a real Mac.
-3. Define a supported OS/runtime matrix and curate compatible component updates.
-4. Complete bundled license/source inventory, signing, notarization, and wrapper
-   release/update distribution before publishing end-user releases.
-
-## License and provenance
-
-GPL-3.0-or-later; see [LICENSE.md](LICENSE.md) and
-[third-party notices](THIRD_PARTY.md). This is an independent packaging project,
-not an official Jellyfin macOS release.
+The product is not an official Jellyfin release. GPL-3.0-or-later; see [LICENSE.md](LICENSE.md) and [THIRD_PARTY.md](THIRD_PARTY.md).
