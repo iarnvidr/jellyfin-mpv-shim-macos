@@ -32,26 +32,28 @@ def main():
     if not ok: raise RuntimeError('updater did not load Sparkle from moved bundle; see updater-dyld.log')
     exe=moved/'Contents/MacOS/Jellyfin Player'
     if not exe.is_file(): raise RuntimeError(f'main executable missing: {exe}')
+    probe_source=evidence/'window_probe.swift'
+    probe_source.write_text('''import AppKit\nimport CoreGraphics\nimport Foundation\nlet pid = pid_t(CommandLine.arguments[1])!\nlet app = NSRunningApplication(processIdentifier: pid)\nlet windows = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []).filter { ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }\nlet names = windows.compactMap { $0[kCGWindowName as String] as? String }\nprint((try! JSONSerialization.data(withJSONObject: ["pid": Int(pid), "alive": app != nil && !app.isTerminated, "windows": windows.count, "windowNames": names], options: [.sortedKeys])).map { String(UnicodeScalar($0)) }.joined())\n''')
+    probe_bin=evidence/'window-probe'
+    compiled=run(['/usr/bin/xcrun','swiftc',str(probe_source),'-o',str(probe_bin)],timeout=120)
+    (evidence/'window-probe-compile.log').write_text(compiled.stdout+'\n--- stderr ---\n'+compiled.stderr)
+    if compiled.returncode: raise RuntimeError('native AppKit/CGWindow probe compilation failed')
     log=(evidence/'player.log').open('w')
     proc=subprocess.Popen([str(exe)],env=env,stdout=log,stderr=subprocess.STDOUT)
     try:
-        deadline=time.time()+60; visible=False; accessibility=False
+        deadline=time.time()+60; windows=[]; alive=False
         while time.time()<deadline:
             if proc.poll() is not None: raise RuntimeError(f'main app exited during startup: {proc.returncode}')
-            remaining=deadline-time.time()
-            if remaining <= 0: break
-            probe=run(['/usr/bin/osascript','-e','tell application "System Events" to get name of every process whose name is "Jellyfin Player"'],timeout=min(10,remaining))
+            probe=run([str(probe_bin),str(proc.pid)],timeout=10)
             if probe.returncode==0:
-                visible='Jellyfin Player' in probe.stdout
-                if visible: break
-            elif 'not authorized' in (probe.stderr+probe.stdout).lower() or 'assistive' in (probe.stderr+probe.stdout).lower(): accessibility=True
+                state=json.loads(probe.stdout); alive=state['alive']; windows=state['windows']
+                if alive and windows: break
             time.sleep(1)
-        if not visible:
-            if accessibility: raise RuntimeError('app process started but window/process query was denied by macOS Accessibility permissions')
-            raise RuntimeError('main app process did not become visible in System Events')
+        if not alive: raise RuntimeError('native NSRunningApplication probe reports app not alive')
+        if not windows: raise RuntimeError('native CGWindowList probe found no app-owned window for launcher PID')
         shot=run(['/usr/sbin/screencapture','-x',str(evidence/'player.png')],timeout=20)
         if shot.returncode: raise RuntimeError('screencapture failed: '+shot.stderr)
-        result['tests'].append({'name':'main app visible','pid':proc.pid,'passed':True})
+        result['tests'].append({'name':'native app liveness and ownerPID window','pid':proc.pid,'windowCount':windows,'passed':True})
         player=moved/'Contents/Resources/mpv.app/Contents/MacOS/mpv'
         if not player.is_file(): raise RuntimeError(f'branded mpv executable missing: {player}')
         mpvlog=(evidence/'mpv.log').open('w')
@@ -61,13 +63,14 @@ def main():
             if mpv.poll() is not None: raise RuntimeError(f'branded mpv exited during synthetic playback: {mpv.returncode}')
             info=run(['/usr/bin/plutil','-p',str(moved/'Contents/Info.plist')])
             if info.returncode or 'Jellyfin Player' not in info.stdout: raise RuntimeError('app metadata verification failed')
-            result['tests'].append({'name':'branded mpv synthetic lavfi playback alive','pid':mpv.pid,'passed':True})
+            descendants=run(['/usr/bin/pgrep','-P',str(proc.pid)]).stdout.split()
+            result['tests'].append({'name':'branded mpv synthetic lavfi playback alive','pid':mpv.pid,'launcherChildren':descendants,'passed':True})
         finally:
             if mpv.poll() is None: mpv.send_signal(__import__('signal').SIGTERM)
             try: mpv.wait(timeout=15)
             except subprocess.TimeoutExpired: mpv.kill(); mpv.wait()
             mpvlog.close()
-        quit_result=run(['/usr/bin/osascript','-e','tell application "System Events" to tell process "Jellyfin Player" to keystroke "q" using {command down}'],timeout=10)
+        quit_result=run(['/usr/bin/osascript','-e','tell application "Jellyfin Player" to quit'],timeout=10)
         if quit_result.returncode: proc.terminate()
         try: proc.wait(timeout=15)
         except subprocess.TimeoutExpired: proc.terminate(); proc.wait(timeout=10)

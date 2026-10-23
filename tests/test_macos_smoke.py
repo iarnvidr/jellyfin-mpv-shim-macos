@@ -14,7 +14,9 @@ class MacOSSmokeTests(unittest.TestCase):
         self.assertIn('Contents/Resources/mpv.app/Contents/MacOS/mpv', source)
         self.assertIn('lavfi://testsrc', source)
         self.assertIn('screencapture', source)
-        self.assertIn('Accessibility permissions', source)
+        self.assertIn('CGWindowListCopyWindowInfo', source)
+        self.assertIn('NSRunningApplication', source)
+        self.assertIn('xcrun',' '.join(source.split()))
         self.assertIn("root/'work/dist/Jellyfin Player.app'", source)
 
     def test_non_macos_is_explicitly_unsupported(self):
