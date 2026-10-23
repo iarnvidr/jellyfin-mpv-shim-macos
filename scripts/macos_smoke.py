@@ -165,6 +165,10 @@ def main():
             time.sleep(1)
         (evidence/'window-probe-result.json').write_text(json.dumps({'launcherPID':proc.pid,'ownerDetails':owner_details},indent=2)+'\n')
         if not windows: raise RuntimeError('native CGWindowList probe found no app-owned descendant window')
+        if state.get('localizedName') and state['localizedName'] != 'Jellyfin Player':
+            raise RuntimeError(f'player has the wrong running-app name: {state["localizedName"]}')
+        if state.get('windowNames') and not any('Jellyfin Player' in name for name in state['windowNames']):
+            raise RuntimeError(f'player has the wrong visible window title: {state["windowNames"]}')
         shot=run(['/usr/sbin/screencapture','-x',str(evidence/'player.png')],timeout=20)
         result['tests'].append({'name':'screen capture', 'status':'captured' if shot.returncode == 0 else 'unavailable', 'message':shot.stderr})
         result['tests'].append({'name':'native app liveness and ownerPID window','launcherPID':proc.pid,'ownerPID':state['pid'],'ownerDetails':owner_details,'windowCount':windows,'passed':True})

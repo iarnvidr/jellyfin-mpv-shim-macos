@@ -108,6 +108,8 @@ if len(public_key_bytes)!=32: raise SystemExit('Sparkle public key must decode t
 env_public_key=os.environ.get('SPARKLE_PUBLIC_ED_KEY')
 if env_public_key is not None and env_public_key != public_key: raise SystemExit('SPARKLE_PUBLIC_ED_KEY does not match the configured Sparkle public key')
 info.update(CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION,CFBundleName='Jellyfin Player',CFBundleDisplayName='Jellyfin Player',CFBundleExecutable='Jellyfin Player',LSMinimumSystemVersion='15.0',NSHighResolutionCapable=True,SUFeedURL='https://raw.githubusercontent.com/iarnvidr/jellyfin-mpv-shim-macos/updates/appcast.xml',SUPublicEDKey=public_key)
+info.update(NSLocalNetworkUsageDescription='Find and connect to your Jellyfin server on your local network.',
+            NSBonjourServices=['_jellyfin._tcp'])
 with info_path.open('wb') as f: plistlib.dump(info,f)
 # Provenance and inventory are generated before signing; artifact hash is added by packaging.
 manifest={'schema':1,'version':VERSION,'python':platform.python_version(),'platform':platform.platform(),'mpv':{'version':LOCK['MPV_VERSION'],'url':LOCK['MPV_URL'],'sha256':LOCK['MPV_SHA256'],'executable':'Contents/Resources/mpv.app/Contents/MacOS/mpv'},'sparkle':{'version':LOCK['SPARKLE_VERSION'],'url':LOCK['SPARKLE_URL'],'sha256':LOCK['SPARKLE_SHA256']},'inputs':{'python_lock_sha256':digest(ROOT/'uv.lock'),'native_lock_sha256':digest(WORK/'native-dependencies.lock')}}

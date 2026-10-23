@@ -58,6 +58,10 @@ def apply(resources, package):
     import mac_update
     import os
     import subprocess
+    from jellyfin_mpv_shim import mpv_options
+    # Change the visible player title without changing upstream profile paths
+    # or its client identity on existing Jellyfin servers.
+    mpv_options.USER_APP_NAME = 'Jellyfin Player'
     original_popen = subprocess.Popen.__init__
     def popen(self, args, *positional, **keywords):
         if isinstance(args, (list, tuple)) and args and Path(str(args[0])).name == 'mpv':
