@@ -334,6 +334,7 @@ def main():
         if not player.is_file(): raise RuntimeError(f'branded mpv executable missing: {player}')
         player_env=player_environment(player,moved/'Contents/Frameworks',inherited)
         player_env['DYLD_PRINT_LIBRARIES']='1'
+        player_env['JELLYFIN_PLAYER_ICON_DIAGNOSTICS']=str(evidence)
         result['tests'].append(verify_playback(player,player_env,evidence))
         loaded=(evidence/'mpv.log').read_text()
         if '/opt/homebrew/' in loaded or '/usr/local/Cellar/' in loaded:

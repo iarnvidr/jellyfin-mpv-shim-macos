@@ -5,6 +5,7 @@
 #import <fcntl.h>
 #import <unistd.h>
 #import <stdatomic.h>
+#import <string.h>
 
 static dispatch_queue_t ioQueue;
 static dispatch_source_t reader;
@@ -20,6 +21,7 @@ static NSDictionary *branding;
 static NSData *iconPixels(NSImage *image) {
     if (!image) return nil;
     NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:64 pixelsHigh:64 bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:256 bitsPerPixel:32];
+    memset(bitmap.bitmapData, 0, bitmap.bytesPerRow * bitmap.pixelsHigh);
     [NSGraphicsContext saveGraphicsState];
     NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithBitmapImageRep:bitmap];
     [image drawInRect:NSMakeRect(0, 0, 64, 64)];
@@ -38,6 +40,11 @@ static void applyPlayerBranding(void) {
     }
     NSData *expectedPixels = iconPixels(icon);
     NSData *actualPixels = iconPixels(NSApp.applicationIconImage);
+    NSString *iconDiagnostics = NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_ICON_DIAGNOSTICS"];
+    if (iconDiagnostics) {
+        [expectedPixels writeToFile:[iconDiagnostics stringByAppendingPathComponent:@"expected-icon.rgba"] atomically:YES];
+        [actualPixels writeToFile:[iconDiagnostics stringByAppendingPathComponent:@"runtime-icon.rgba"] atomically:YES];
+    }
     // The stock engine hardcodes these labels even when it is a named bundle.
     for (NSMenuItem *item in NSApp.mainMenu.itemArray.firstObject.submenu.itemArray) {
         if ([item.title isEqualToString:@"About mpv"]) item.title = @"About Jellyfin Player";
