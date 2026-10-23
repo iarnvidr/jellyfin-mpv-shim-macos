@@ -5,6 +5,12 @@ import argparse, json, re, subprocess, sys
 SYSTEM_PREFIXES=('/System/Library/','/usr/lib/')
 OTOOL_DEPENDENCY_RE = re.compile(r'^\s*(.+?)\s+\(compatibility version ')
 LOAD_COMMAND_SPLIT_RE = re.compile(r'(?=\nLoad command \d+)')
+MINIMUM_MACOS = '15.7.9'
+
+
+def deployment_version(value):
+    parts = value.split('.')
+    return tuple(map(int, parts + ['0'] * (3 - len(parts))))
 
 
 
@@ -133,7 +139,7 @@ def audit(app):
                 m=re.search(r'\bversion\s+(\d+(?:\.\d+){0,2})', block)
                 if m: targets.append(m.group(1))
         if not targets: problems.append(f'{rel}: deployment target unavailable')
-        elif any(tuple(map(int,(x.split('.')+['0'])[:2])) > (15,0) for x in targets): problems.append(f'{rel}: minimum OS exceeds macOS 15: {targets}')
+        elif any(deployment_version(x) > deployment_version(MINIMUM_MACOS) for x in targets): problems.append(f'{rel}: minimum OS exceeds macOS {MINIMUM_MACOS}: {targets}')
         binaries.append({'path':rel,'architectures':archs,'minimum_os':targets or None,'install_ids':install_ids,'load_commands':load_commands,'dependencies':deps,'_rpaths':rpaths,'_load':load})
         files.append(rel)
     # Build a graph keyed by canonical bundle paths; repeated visits are kept

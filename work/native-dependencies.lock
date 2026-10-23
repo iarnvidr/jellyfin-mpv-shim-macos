@@ -3,7 +3,10 @@
 SPARKLE_VERSION=2.10.0
 SPARKLE_URL=https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz
 SPARKLE_SHA256=c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c
-# Official mpv-player v0.41.0 release; macOS 15 arm64 archive, verified from downloaded bytes.
-MPV_VERSION=0.41.0
-MPV_URL=https://github.com/mpv-player/mpv/releases/download/v0.41.0/mpv-v0.41.0-macos-15-arm.zip
-MPV_SHA256=489cf6a54f57c54f86ad8d7cedaf5bb26848770d58dc059021214e2f689ee799
+# Official development build containing the CoreAudio init-failure listener fix
+# c5d391adba7bd024954d0df1e0405f5749f4d4ca (mpv-player/mpv#18274).
+# Pin a named build and exact bytes; never resolve the rolling latest asset.
+MPV_VERSION=0.41.0-dev-g3aecc359b
+MPV_ARCHIVE=vendor/mpv/mpv-3aecc359b-macos-15-arm.zip
+MPV_URL=https://github.com/mpv-player/mpv/releases/download/git-release/mpv-v0.41.0-dev-g3aecc359b-39997768869-macos-15-arm.zip
+MPV_SHA256=5e9162149826822b911f69d4e6bc3644bae35d9609fd8af28238c43a106301e3
