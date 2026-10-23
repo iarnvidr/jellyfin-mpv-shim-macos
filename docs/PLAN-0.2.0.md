@@ -17,6 +17,20 @@ The release remains ad-hoc signed unless Developer ID credentials become
 available. Document the macOS first-open approval honestly. Sparkle update
 signatures provide update authenticity; they do not provide Apple notarization.
 
+## Explicit toolchain constraint (supersedes historical evidence)
+
+No Homebrew and no alternative system package manager may be installed, invoked,
+or relied on for development, CI/build, release, or application runtime. This is
+stronger than merely removing Homebrew from end-user runtime. The only permitted
+managed build environment is pinned uv and pinned Python; native compilation may
+use Xcode-provided SDK/compiler tools. All other native inputs must be verified
+immutable assets or built from controlled, reviewed source with recorded
+provenance. Do not use ambient package-manager caches, formula metadata, prefixes,
+or PATH entries as trusted inputs. A build must fail closed if required verified
+inputs are absent. This constraint supersedes any historical prototype Mac run
+that failed while using a Homebrew cache; that failure is not a current green
+result and does not establish a complete native inventory.
+
 ## Scope and dependency decisions
 
 | Component | Decision for 0.2.0 | Where it exists |
@@ -53,14 +67,17 @@ Implement:
   from the upstream client version in diagnostic metadata.
 - Record Python, upstream, shaders, mpv, native dependencies, Sparkle, toolchain,
   and source revisions in a build manifest. Hash downloads outside uv's lock.
-- Resolve the current floating Homebrew mpv input: select a tested distributable
-  build or controlled build source, record its immutable origin/hash and source
-  provenance, and verify relocation. Do not claim uv locks native binaries.
+- Replace the former Homebrew mpv input with a tested immutable native asset or
+  controlled source build. Record origin/hash, source provenance, dependencies,
+  and relocation results. Do not claim uv locks native binaries. The worker
+  implementing the native build owns its assigned implementation files; this
+  plan does not assert that replacement is complete.
 
 Acceptance:
 
 - A clean checkout prepares resources, syncs, checks, and builds using documented
-  uv commands. Locked sync does not rewrite the lockfile.
+  pinned uv/Python commands plus Xcode SDK tools, without any system package
+  manager. Locked sync does not rewrite the lockfile.
 - CI uses the same commands; no developer-specific paths remain.
 - Inventory identifies what is bundled and why; build tools and unnecessary
   metadata are excluded where compatible with application resource discovery.
@@ -154,7 +171,7 @@ Acceptance:
 
 Implement:
 
-- Extend the macOS workflow into build/test/package and a separate publish job.
+- Extend the macOS workflow into build/test/package and a separate publish job. The workflow must not install or invoke Homebrew or any alternative system package manager; native inputs are verified assets or controlled builds.
   Use minimal permissions; untrusted pull requests never receive release keys.
 - Validate that the tag matches `VERSION` and bundle versions. Build release
   artifacts once, test them, then upload those same artifacts to a draft release.

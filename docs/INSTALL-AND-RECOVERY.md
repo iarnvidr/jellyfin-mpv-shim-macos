@@ -1,6 +1,6 @@
 # Installation, upgrade and recovery (0.2.0 preparation)
 
-This guide describes intended recovery behavior, not a tested release procedure. 0.2.0 is not yet released or qualified. Use only a release artifact whose provenance and integrity you have verified.
+This guide describes intended recovery behavior, not a tested release procedure. 0.2.0 is not yet released or qualified. Maintainer development, build, release, and runtime paths must not install or rely on Homebrew or any alternative system package manager. The permitted toolchain is pinned uv/Python and Xcode SDK tools, with other native inputs supplied only as verified immutable assets or controlled source builds. This is not an end-user requirement to install any such tools. Use only a release artifact whose provenance and integrity you have verified.
 
 ## First open
 

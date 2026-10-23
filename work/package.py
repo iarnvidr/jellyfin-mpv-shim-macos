@@ -1,19 +1,23 @@
 """Create symlink-preserving DMG, Sparkle archive, source archive, and checksums."""
 from pathlib import Path
-import hashlib, json, shutil, subprocess, sys, zipfile
+import hashlib, json, shutil, subprocess, sys, zipfile, os
 ROOT=Path(__file__).resolve().parent.parent; WORK=ROOT/'work'; OUT=ROOT/'outputs'; VERSION=(ROOT/'VERSION').read_text().strip()
 if sys.platform!='darwin': raise SystemExit('Packaging release artifacts requires macOS and Apple tools.')
+def apple(tool):
+ p=Path('/usr/bin')/tool
+ return str(p) if p.exists() else subprocess.check_output(['/usr/bin/xcrun','--find',tool],text=True).strip()
+def run(tool,*args): subprocess.run([apple(tool),*map(str,args)],check=True,env={**os.environ,'PATH':'/usr/bin:/bin:/usr/sbin:/sbin'})
 app=WORK/'dist/Jellyfin MPV Shim.app'
 if not app.is_dir(): raise SystemExit(f'Missing built app: {app}')
 OUT.mkdir(exist_ok=True); stage=WORK/'installer'; stage.mkdir(exist_ok=True)
 if (stage/app.name).exists(): shutil.rmtree(stage/app.name)
-subprocess.run(['ditto',str(app),str(stage/app.name)],check=True)
+run('ditto',str(app),str(stage/app.name))
 if not (stage/'Applications').exists(): (stage/'Applications').symlink_to('/Applications',target_is_directory=True)
 dmg=OUT/f'Jellyfin-MPV-Shim-macOS-{VERSION}-Apple-Silicon.dmg'
-subprocess.run(['hdiutil','create','-volname','Jellyfin MPV Shim','-srcfolder',str(stage),'-format','UDZO','-ov',str(dmg)],check=True)
+run('hdiutil','create','-volname','Jellyfin MPV Shim','-srcfolder',str(stage),'-format','UDZO','-ov',str(dmg))
 archive=OUT/f'Jellyfin-MPV-Shim-{VERSION}-Apple-Silicon.zip'
 if archive.exists(): archive.unlink()
-subprocess.run(['ditto','-c','-k','--sequesterRsrc','--keepParent',str(app),str(archive)],check=True)
+run('ditto','-c','-k','--sequesterRsrc','--keepParent',str(app),str(archive))
 source=OUT/f'Jellyfin-MPV-Shim-{VERSION}-Source.zip'
 with zipfile.ZipFile(source,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
  for base in [ROOT/'work',ROOT/'vendor/default-shader-pack']:
@@ -21,7 +25,7 @@ with zipfile.ZipFile(source,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
    if p.is_file() and '.git' not in p.parts and not any(x in p.parts for x in ('.venv','dist','pyinstaller','installer')): z.write(p,p.relative_to(ROOT))
  for p in [ROOT/'VERSION',ROOT/'LICENSE.md',ROOT/'THIRD_PARTY.md',ROOT/'pyproject.toml',ROOT/'uv.lock',ROOT/'docs/PLAN-0.2.0.md']:
   if p.is_file(): z.write(p,p.relative_to(ROOT))
-subprocess.run(['codesign','--verify','--deep','--strict',str(app)],check=True); subprocess.run(['hdiutil','verify',str(dmg)],check=True)
+run('codesign','--verify','--deep','--strict',str(app)); run('hdiutil','verify',str(dmg))
 manifest=app/'Contents/Resources/build-manifest.json'
 if not manifest.is_file(): raise SystemExit('Missing in-app build manifest')
 # Hash the finalized signed app tree as an inventory alongside artifacts.

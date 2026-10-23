@@ -19,10 +19,8 @@ jobs:
         with:
           version: '0.13.1'
           enable-cache: true
-      - name: Install pinned Python and native dependency
-        run: |
-          uv python install
-          brew install mpv
+      - name: Install pinned Python
+        run: uv python install
       - name: Prepare resources
         run: uv run --locked --no-sync python scripts/prepare.py
       - name: Install locked build environment

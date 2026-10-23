@@ -22,7 +22,7 @@ uv run --locked python work/build.py
 uv run --locked python work/package.py
 ```
 
-These commands are preparation instructions, not evidence that a release build or packaged app has passed qualification. See the plan for unresolved native mpv provenance and artifact audits. The manual macOS workflow is development automation, not release qualification.
+These commands are preparation instructions, not evidence that a release build or packaged app has passed qualification. Maintainer build/dev/release/runtime flows must not install or rely on Homebrew or any alternative system package manager. Use pinned uv/Python and the Xcode-provided SDK/compiler tools only, plus native assets whose provenance and hashes are verified or dependencies built from controlled source. Do not accept ambient `/opt/homebrew` or other package-manager paths as inputs. See the plan for unresolved native mpv provenance and artifact audits. The manual macOS workflow is development automation, not release qualification.
 
 ## Source and versioning
 

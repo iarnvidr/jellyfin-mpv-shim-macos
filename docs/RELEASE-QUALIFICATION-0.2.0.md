@@ -4,8 +4,8 @@
 
 | Gate | Status | Evidence / remaining work |
 | --- | --- | --- |
-| Pinned uv/Python clean-checkout build and upstream checks | Pending | Current project anticipates pinned uv 0.13.1 and Python 3.13. Run locked sync, prepare, checks, package from clean checkout; prove lock unchanged. |
-| Self-contained bundle; no developer tools on user Mac | Pending | Test final artifact on clean Apple Silicon Mac without Python/Homebrew/uv; connect, browse, playback. |
+| Pinned uv/Python clean-checkout build and upstream checks | Pending | Current project anticipates pinned uv 0.13.1 and Python 3.13. Build/dev/release/runtime use of Homebrew or any alternative system package manager is forbidden. Run locked sync, prepare, checks, and package from clean checkout using only pinned uv/Python, Xcode SDK tools, and verified immutable native assets or controlled source builds; prove lock unchanged. Prior failed Homebrew-cache runs are superseded historical evidence, not a pass. |
+| Self-contained bundle; no developer tools on user Mac | Pending | Test final artifact on clean Apple Silicon Mac without Python, uv, Homebrew, or other package manager; connect, browse, playback. |
 | OS/hardware support | Pending | Initial target Apple Silicon/macOS 15+. Verify collected binaries' minimum OS and interactive smoke tests on macOS 15 and a current macOS. No Intel claim. |
 | 0.1.0 migration | Pending | One-time manual wrapper upgrade; verify settings/connections retained and active, pending, broken, stale legacy `Updates/`/`Runtimes/` selections cannot affect launch. |
 | Runtime ownership, shutdown and recovery | Pending | Prototype handoff reports unresolved lifecycle/selection issue. Exercise quit/reopen, repeated launches, interruption and fallback; do not claim health rollback. |
@@ -17,4 +17,4 @@
 
 ## Evidence log
 
-No interactive qualification evidence recorded yet. Prior local prototype tests and known limitations are described only in the historical [repository handoff](REPOSITORY-HANDOFF.md); they do not qualify 0.2.0. Never infer completion from green CI. Append dated evidence here, preserve failed results, and leave gates pending until the required evidence exists.
+No interactive qualification evidence recorded yet. No gate is green. Previous Mac attempts that failed on Homebrew cache behavior are historical and superseded by the explicit no-package-manager constraint; they are not green build evidence and do not establish native-asset inventory completeness. Prior local prototype tests and known limitations are described only in the historical [repository handoff](REPOSITORY-HANDOFF.md); they do not qualify 0.2.0. Never infer completion from green CI. Append dated evidence here, preserve failed results, and leave gates pending until the required evidence exists.

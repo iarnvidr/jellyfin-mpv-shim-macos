@@ -1,61 +1,40 @@
 from pathlib import Path
-import hashlib, importlib.metadata, json, os, platform, plistlib, shutil, subprocess, sys, urllib.request
+import hashlib, importlib.metadata, os, platform, plistlib, shutil, subprocess, sys, urllib.request
 ROOT=Path(__file__).resolve().parent.parent; WORK=ROOT/'work'; OUT=ROOT/'outputs'
 NAME='Jellyfin MPV Shim'; VERSION=(ROOT/'VERSION').read_text().strip()
 LOCK=dict(line.split('=',1) for line in (WORK/'native-dependencies.lock').read_text().splitlines() if line and not line.startswith('#'))
 def digest(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
-def command(*a): subprocess.run(a,check=True)
+def command(*a): subprocess.run(a,check=True,env={**os.environ,'PATH':'/usr/bin:/bin:/usr/sbin:/sbin'})
+def apple(tool):
+ p=Path('/usr/bin')/tool
+ return str(p) if p.exists() else subprocess.check_output(['/usr/bin/xcrun','--find',tool],text=True).strip()
 if sys.platform!='darwin' or platform.machine()!='arm64': raise SystemExit('Build on Apple Silicon macOS.')
-# Fetch through Homebrew rather than urllib: GHCR requires an anonymous
-# OCI bearer-token challenge, which urllib does not implement. Homebrew's
-# bottle downloader handles that public registry flow. Verify the exact
-# cached artifact against the reviewed lock before installation.
-formula=json.loads(urllib.request.urlopen(LOCK['MPV_SOURCE']).read())
-bottle=formula['bottle']['stable']['files']['arm64_sequoia']
-if bottle['sha256']!=LOCK['MPV_ARCHIVE_SHA256'] or formula['versions']['stable'] not in LOCK['MPV_REVISION']: raise SystemExit('mpv formula provenance changed')
-command('brew','fetch','--force','--bottle-tag=arm64_sequoia','--retry','mpv')
-# --cache --bottle alone reports the cache directory; --bottle-tag selects
-# the formula's exact bottle cache path. Search downloads as a fallback because
-# Homebrew versions may organize cached downloads differently. Trust content,
-# not a guessed filename: only the independently locked SHA-256 is accepted.
-cache_output=subprocess.check_output(['brew','--cache','--bottle-tag=arm64_sequoia','mpv'],text=True).strip()
-cache_path=Path(cache_output)
-candidates=[]
-if cache_path.is_file(): candidates.append(cache_path)
-download_dirs={cache_path/'downloads',cache_path.parent/'downloads'}
-# Homebrew's cache path is normally itself under downloads; include that
-# directory plus the formula cache directory for layout variations.
-for parent in cache_path.parents:
- if parent.name=='downloads': download_dirs.add(parent)
-if cache_path.is_dir(): download_dirs.add(cache_path)
-for downloads in download_dirs:
- if downloads.is_dir(): candidates.extend(p for p in downloads.iterdir() if p.is_file())
-matched=[]
-seen=set()
-for candidate in candidates:
- if candidate in seen: continue
- seen.add(candidate)
- try:
-  if digest(candidate)==LOCK['MPV_ARCHIVE_SHA256']: matched.append(candidate)
- except OSError:
-  continue
-if not matched: raise SystemExit('mpv bottle with locked SHA-256 not found in Homebrew cache')
-mpv=matched[0]
-command('brew','install','mpv')
-mpvbin=Path(subprocess.check_output(['brew','--prefix','mpv'],text=True).strip())/'bin/mpv'
+# Download immutable official mpv-player archive, verify exact bytes, then extract.
+command(sys.executable,str(WORK/'acquire_mpv.py'))
+mpvapp=WORK/'mpv-release/mpv.app'
+mpvbin=mpvapp/'Contents/MacOS/mpv'
 if not mpvbin.is_file(): raise SystemExit('mpv executable missing')
+# Resolve Apple-provided compiler tools explicitly rather than trusting PATH.
+clang=apple('clang')
+swiftc=apple('swiftc')
 sparkle=WORK/'Sparkle-2.10.0.tar.xz'
 if not sparkle.exists(): urllib.request.urlretrieve(LOCK['SPARKLE_URL'],sparkle)
 if digest(sparkle)!=LOCK['SPARKLE_SHA256']: raise SystemExit('Sparkle SHA-256 mismatch')
 command('tar','-xf',str(sparkle),'-C',str(WORK))
-command('swiftc',str(WORK/'Updater.swift'),'-o',str(WORK/'Mac Updater'),'-F',str(WORK),'-framework','AppKit','-framework','Sparkle','-Xlinker','-rpath','-Xlinker','@executable_path/../../../Frameworks')
-command('clang','-dynamiclib','-fobjc-arc','-fblocks',str(WORK/'NativeScroll.m'),'-o',str(WORK/'native-scroll.dylib'),'-framework','Cocoa')
+command(swiftc,str(WORK/'Updater.swift'),'-o',str(WORK/'Mac Updater'),'-F',str(WORK),'-framework','AppKit','-framework','Sparkle','-Xlinker','-rpath','-Xlinker','@executable_path/../../../Frameworks')
+command(clang,'-dynamiclib','-fobjc-arc','-fblocks',str(WORK/'NativeScroll.m'),'-o',str(WORK/'native-scroll.dylib'),'-framework','Cocoa')
 metadata=[]
 for d in importlib.metadata.distributions():
  n=d.metadata.get('Name')
  if n and not n.lower().startswith(('pyinstaller','altgraph','macholib')): metadata.extend(['--copy-metadata',n])
 command(str(ROOT/'.venv/bin/pyinstaller'),'--noconfirm','--clean','--windowed','--onedir','--name',NAME,'--osx-bundle-identifier','org.jellyfin.mpvshim.local','--icon',str(WORK/'source/jellyfin.icns'),'--collect-all','jellyfin_mpv_shim','--collect-all','jellyfin_apiclient_python','--collect-all','python_mpv_jsonipc','--hidden-import','PIL.ImageFont','--add-binary',str(mpvbin)+':.','--add-binary',str(WORK/'native-scroll.dylib')+':.','--distpath',str(WORK/'dist'),'--workpath',str(WORK/'pyinstaller'),'--specpath',str(WORK),*metadata,str(WORK/'launch.py'))
 app=WORK/'dist'/(NAME+'.app'); support=app/'Contents/Resources/mac_support'; support.mkdir(parents=True,exist_ok=True)
+# The official artifact is a complete app, not a standalone executable: preserve its
+# transitive dylibs, MoltenVK, Vulkan ICD resources and config next to the binary.
+mpv_dest=app/'Contents/Resources/mpv.app'
+shutil.copytree(mpvapp,mpv_dest,symlinks=True,ignore=shutil.ignore_patterns('_CodeSignature','._*','.gitkeep'))
+# PyInstaller's additional standalone executable is redundant; use the app-bundled one.
+
 for n in ['launch.py','mac_update.py','local_compat.py','runtime_update.py','managed_launch.py']:
  if (WORK/n).exists(): shutil.copy2(WORK/n,support/n)
 shutil.copy2(WORK/'source/jellyfin.icns',support/'jellyfin.icns'); (app/'Contents/Frameworks/mac_support').symlink_to('../Resources/mac_support')
@@ -70,5 +49,8 @@ info_path=app/'Contents/Info.plist'
 with info_path.open('rb') as f: info=plistlib.load(f)
 info.update(CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION,CFBundleDisplayName=NAME,LSMinimumSystemVersion='15.0',NSHighResolutionCapable=True,SUFeedURL='https://raw.githubusercontent.com/iarnvidr/jellyfin-mpv-shim-macos/updates/appcast.xml',SUPublicEDKey=os.environ.get('SPARKLE_PUBLIC_ED_KEY',''))
 with info_path.open('wb') as f: plistlib.dump(info,f)
-subprocess.run([sys.executable,str(WORK/'native_audit.py'),str(app)],check=True)
-command('codesign','--force','--deep','--sign','-',str(app)); print('APP_READY',app,flush=True)
+# Provenance and inventory are generated before signing; artifact hash is added by packaging.
+manifest={'schema':1,'version':VERSION,'python':platform.python_version(),'platform':platform.platform(),'mpv':{'version':LOCK['MPV_VERSION'],'url':LOCK['MPV_URL'],'sha256':LOCK['MPV_SHA256'],'executable':'Contents/Resources/mpv.app/Contents/MacOS/mpv'},'sparkle':{'version':LOCK['SPARKLE_VERSION'],'url':LOCK['SPARKLE_URL'],'sha256':LOCK['SPARKLE_SHA256']},'inputs':{'python_lock_sha256':digest(ROOT/'uv.lock'),'native_lock_sha256':digest(WORK/'native-dependencies.lock')}}
+(app/'Contents/Resources/build-manifest.json').write_text(__import__('json').dumps(manifest,indent=2)+'\\n')
+subprocess.run([sys.executable,str(WORK/'native_audit.py'),str(app)],check=True,env={**os.environ,'PATH':'/usr/bin:/bin:/usr/sbin:/sbin'})
+command(apple('codesign'),'--force','--deep','--sign','-',str(app)); print('APP_READY',app,flush=True)
