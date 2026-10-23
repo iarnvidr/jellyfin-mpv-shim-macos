@@ -1,4 +1,5 @@
 """Verify and execute the app recovered from each distributable, never re-sign it."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -15,9 +16,12 @@ def command(*args, **kwargs):
     return subprocess.run(list(map(str,args)),check=True,**kwargs)
 
 
-def check(app, kind, evidence, upgrade=False):
+def check(app, kind, evidence, upgrade=False, signatures_only=False):
     evidence.mkdir(parents=True,exist_ok=True)
     (evidence/'extracted-signatures.json').write_text(json.dumps(verify_bundle(app),indent=2)+'\n')
+    if signatures_only:
+        print(f'{kind}: all extracted native signatures valid',flush=True)
+        return
     command(sys.executable,ROOT/'scripts/macos_smoke.py','--app',app,'--evidence',evidence,*(('--upgrade-check',) if upgrade else ()))
     # A contaminated loader environment must not affect the actual application.
     poisoned={**os.environ, 'VK_DRIVER_FILES':'/opt/homebrew/share/vulkan/icd.d/MoltenVK_icd.json',
@@ -30,20 +34,24 @@ def check(app, kind, evidence, upgrade=False):
 
 def main():
     version=(ROOT/'VERSION').read_text().strip()
-    out=ROOT/'outputs'
-    evidence=out/'macos-smoke-evidence'
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--artifacts',type=Path,default=ROOT/'outputs')
+    parser.add_argument('--signatures-only',action='store_true')
+    args=parser.parse_args()
+    out=args.artifacts
+    evidence=ROOT/'outputs/macos-smoke-evidence'
     with tempfile.TemporaryDirectory(prefix='jellyfin-distribution-') as directory:
         temporary=Path(directory)
         extracted=temporary/'zip'; extracted.mkdir()
         command('/usr/bin/ditto','-x','-k',out/f'Jellyfin-Player-{version}-Apple-Silicon.zip',extracted)
-        check(extracted/'Jellyfin Player.app','Update ZIP',evidence/'zip',upgrade=True)
+        check(extracted/'Jellyfin Player.app','Update ZIP',evidence/'zip',upgrade=True,signatures_only=args.signatures_only)
         mount=temporary/'dmg'; mount.mkdir()
         command('/usr/bin/hdiutil','attach','-readonly','-nobrowse','-mountpoint',mount,out/f'Jellyfin-Player-macOS-{version}-Apple-Silicon.dmg')
         try:
             installed=temporary/'installed'/'Jellyfin Player.app'
             installed.parent.mkdir()
             command('/usr/bin/ditto',mount/'Jellyfin Player.app',installed)
-            check(installed,'DMG',evidence/'dmg')
+            check(installed,'DMG',evidence/'dmg',signatures_only=args.signatures_only)
         finally:
             command('/usr/bin/hdiutil','detach',mount)
 

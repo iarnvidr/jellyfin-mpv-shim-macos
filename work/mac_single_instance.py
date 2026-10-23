@@ -85,6 +85,23 @@ def install(executable):
                 return True
             raise StartupFailure(f'The running app did not confirm that it showed its window:\n{details}\n\nQuit that instance and reopen Jellyfin Player. If it is unresponsive, use Activity Monitor to quit the identified process.')
 
+        def _request(self, command):
+            if command != b'SHOW': return super()._request(command)
+            endpoint = self._read_lock()
+            if not endpoint: return False
+            port, token = endpoint
+            try:
+                with socket.create_connection(('127.0.0.1', port), timeout=2) as connection:
+                    connection.sendall(single_instance._MAGIC+token+b'\n')
+                    reply = b''
+                    while len(reply) < 6:
+                        chunk = connection.recv(6-len(reply))
+                        if not chunk: break
+                        reply += chunk
+                return reply == single_instance._MAGIC+b'OK'
+            except OSError:
+                return False
+
         def _serve_one(self, conn):
             try:
                 conn.settimeout(3)

@@ -61,7 +61,9 @@ def verify_artifacts(directory, tag):
     dmg=f"Jellyfin-Player-macOS-{ver}-Apple-Silicon.dmg"
     source=f"Jellyfin-Player-{ver}-Source.zip"
     manifest=f"Jellyfin-Player-{ver}-Build-Manifest.json"
-    required={dmg,archive,source,"SHA256SUMS",manifest}
+    signatures=f"Jellyfin-Player-{ver}-Signatures.json"
+    required={dmg,archive,source,"SHA256SUMS",manifest,signatures,
+              f"Jellyfin-Player-{ver}-Native-Audit.json",f"Jellyfin-Player-{ver}-Bundle-Inventory.json"}
     names={p.name for p in d.iterdir() if p.is_file()}
     if not required <= names: raise ValueError("missing release assets: "+", ".join(sorted(required-names)))
     sums={}
@@ -73,6 +75,13 @@ def verify_artifacts(directory, tag):
     if set(sums)!=expected: raise ValueError("SHA256SUMS must list exactly the release assets")
     for name in expected:
         if sums.get(name)!=checksum(d/name): raise ValueError(f"checksum mismatch: {name}")
+    signature_report=json.loads((d/signatures).read_text())
+    targets=signature_report.get('targets',[])
+    required_targets={'.','Contents/Resources/mpv.app',
+                      'Contents/Resources/mpv.app/Contents/MacOS/mpv',
+                      'Contents/Resources/mpv.app/Contents/Frameworks/libMoltenVK.dylib'}
+    if signature_report.get('valid') is not True or not targets or any(t.get('valid') is not True for t in targets) or not required_targets <= {t.get('path') for t in targets}:
+        raise ValueError('explicit nested signature verification is missing or failed')
     return {"version":ver,"archive":archive,"dmg":dmg,"source":source,"manifest":manifest,"length":(d/archive).stat().st_size,"inventory":sorted(names)}
 
 def find_run_artifact(artifacts, expected_name):

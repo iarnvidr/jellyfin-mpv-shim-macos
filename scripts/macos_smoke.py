@@ -9,9 +9,10 @@ import CoreGraphics
 import Foundation
 let pid = pid_t(CommandLine.arguments[1])!
 let app = NSRunningApplication(processIdentifier: pid)
+let includePanels = CommandLine.arguments.contains("--panels")
 let windows = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []).filter {
     ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) &&
-    ($0[kCGWindowLayer as String] as? Int) == 0
+    (includePanels || ($0[kCGWindowLayer as String] as? Int) == 0)
 }
 let payload: [String: Any] = [
     "pid": Int(pid), "registered": app?.isTerminated == false,
@@ -150,7 +151,7 @@ def verify_legacy_conflict(root, app, env, base, probe_bin, evidence):
             dialogs=[]
             while time.monotonic()<deadline:
                 for pid in run(['/usr/bin/pgrep','-P',str(newcomer.pid)],timeout=5).stdout.split():
-                    probe=run([str(probe_bin),pid],timeout=10)
+                    probe=run([str(probe_bin),pid,'--panels'],timeout=10)
                     if probe.returncode==0 and json.loads(probe.stdout).get('windows'):
                         dialogs.append(int(pid))
                 if dialogs: break

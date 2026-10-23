@@ -11,5 +11,6 @@ def player_environment(player, resources, inherited):
     icd = contents / 'Resources/vulkan/icd.d/MoltenVK_icd.json'
     env.update(MPVBUNDLE='true',
                VK_DRIVER_FILES=str(icd), VK_ICD_FILENAMES=str(icd),
+               VK_LOADER_SEARCH_ONLY_IN_BUNDLE='1',
                DYLD_INSERT_LIBRARIES=str(Path(resources) / 'native-scroll.dylib'))
     return env

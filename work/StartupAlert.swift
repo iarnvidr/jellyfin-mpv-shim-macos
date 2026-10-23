@@ -6,6 +6,7 @@ guard args.count == 2 else { exit(2) }
 let report = URL(fileURLWithPath: args[0])
 let application = NSApplication.shared
 application.setActivationPolicy(.accessory)
+application.finishLaunching()
 let alert = NSAlert()
 alert.alertStyle = .critical
 alert.messageText = "Jellyfin Player could not open"

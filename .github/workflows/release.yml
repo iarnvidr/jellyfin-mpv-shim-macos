@@ -56,6 +56,8 @@ jobs:
           unzip -q artifact.zip -d artifacts
           uv run --locked --no-sync python scripts/release.py verify-artifacts artifacts --metadata "$PREVIEW_TAG" > verified.json
           test "$(git rev-parse HEAD)" = "$TRUSTED_SHA"
+      - name: Verify downloaded DMG and update ZIP native signatures
+        run: uv run --locked --no-sync python scripts/distribution_check.py --artifacts artifacts --signatures-only
       - name: Install verified Sparkle signer
         run: |
           curl -fsSL https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz -o /tmp/sparkle.tar.xz

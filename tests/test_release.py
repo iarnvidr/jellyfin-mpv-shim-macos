@@ -11,6 +11,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import release
 
 class ReleaseTests(unittest.TestCase):
+    def test_valid_checksums_do_not_allow_invalid_or_missing_nested_signatures(self):
+        version=release.version()
+        with tempfile.TemporaryDirectory() as directory:
+            d=Path(directory)
+            for name in (f'Jellyfin-Player-{version}-Apple-Silicon.zip',f'Jellyfin-Player-macOS-{version}-Apple-Silicon.dmg',f'Jellyfin-Player-{version}-Source.zip',f'Jellyfin-Player-{version}-Build-Manifest.json',f'Jellyfin-Player-{version}-Native-Audit.json',f'Jellyfin-Player-{version}-Bundle-Inventory.json'):
+                (d/name).write_bytes(b'fixture')
+            targets=[{'path':p,'valid':True} for p in ('.','Contents/Resources/mpv.app','Contents/Resources/mpv.app/Contents/MacOS/mpv','Contents/Resources/mpv.app/Contents/Frameworks/libMoltenVK.dylib')]
+            signature=d/f'Jellyfin-Player-{version}-Signatures.json'
+            def write_report(rows):
+                signature.write_text(json.dumps({'valid':True,'targets':rows}))
+                (d/'SHA256SUMS').write_text(''.join(f'{release.checksum(p)}  {p.name}\n' for p in sorted(d.iterdir()) if p.name!='SHA256SUMS'))
+            write_report(targets)
+            release.verify_artifacts(d,'v'+version)
+            for invalid in ([*targets[:-1],dict(targets[-1],valid=False)],targets[:-1]):
+                write_report(invalid)
+                with self.assertRaisesRegex(ValueError,'nested signature'):
+                    release.verify_artifacts(d,'v'+version)
     def test_validate_run_cli(self):
         run={"id":123,"repository":{"full_name":"iarnvidr/jellyfin-mpv-shim-macos"},"path":".github/workflows/macos-build.yml","conclusion":"success","event":"push","head_branch":"main","head_sha":"a"*40}
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as f:

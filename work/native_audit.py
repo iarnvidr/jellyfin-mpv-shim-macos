@@ -89,6 +89,9 @@ def audit(app):
         if bad: problems.append(f'{rel}: non-relative/non-system linkage: {bad}')
         if 'arm64' not in archs: problems.append(f'{rel}: missing arm64 architecture: {archs}')
         rpaths=rpaths_from_load_commands(load,path)
+        for rpath in rpaths:
+            if not rpath.startswith(SYSTEM_PREFIXES) and not Path(rpath).resolve().is_relative_to(app):
+                problems.append(f'{rel}: external runtime search path: {rpath}')
         # The graph is rooted only at actual MH_EXECUTE images. Each traversal
         # carries the dyld stack inherited from its parent plus this loader's
         # LC_RPATH entries; unrelated helper roots never leak search paths.
@@ -161,11 +164,22 @@ def audit(app):
             if target is None:
                 if candidates: unresolved.add((loader,dep))
                 continue
+            if not Path(target).is_relative_to(app) and not target.startswith(SYSTEM_PREFIXES):
+                problems.append(f'{Path(loader).relative_to(app)}: dependency resolves outside the bundle: {dep} -> {target}')
             if target in by_path:
                 child_stack=context_rpaths(target,by_path[target]['_load'],stack, executable=executable)
                 queue.append((target,executable,child_stack))
     for loader,dep in sorted(unresolved):
         problems.append(f"{Path(loader).relative_to(app)}: unresolved @rpath dependency: {dep}")
+    icd=app/'Contents/Resources/mpv.app/Contents/Resources/vulkan/icd.d/MoltenVK_icd.json'
+    try:
+        icd_data=json.loads(icd.read_text())
+        driver=(icd.parent/icd_data['ICD']['library_path']).resolve()
+        expected=(app/'Contents/Resources/mpv.app/Contents/Frameworks/libMoltenVK.dylib').resolve()
+        if driver != expected or not driver.is_file():
+            problems.append(f'Vulkan ICD must resolve to bundled MoltenVK: {driver}')
+    except (OSError,ValueError,KeyError,TypeError) as error:
+        problems.append(f'Invalid bundled Vulkan ICD: {error}')
     for binary in binaries:
         binary.pop('_load',None); binary.pop('_rpaths',None)
     inventory=[]

@@ -85,6 +85,15 @@ class MacInstanceUpgrade(unittest.TestCase):
             with self.assertRaisesRegex(StartupFailure,'lock cannot be opened'):
                 self.instance().acquire()
 
+    def test_magic_header_without_ok_is_not_an_acknowledgement(self):
+        from unittest.mock import MagicMock
+        connection=MagicMock()
+        connection.recv.side_effect=[b'JMS1',b'']
+        instance=self.instance()
+        with patch.object(instance,'_read_lock',return_value=(123,b'token')), patch.object(mac_single_instance.socket,'create_connection') as factory:
+            factory.return_value.__enter__.return_value=connection
+            self.assertFalse(instance._request(b'SHOW'))
+
     def test_current_version_at_a_different_install_path_is_an_upgrade_conflict(self):
         primary=self.instance()
         self.assertTrue(primary.acquire())
