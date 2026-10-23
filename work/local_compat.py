@@ -70,7 +70,7 @@ def apply(resources, package):
             keywords['env'] = player_environment(args[0], resources, keywords.get('env') or os.environ)
             # The upstream default discards terminal output. Keep a bounded,
             # redacted tail, drained continuously, for startup failure reports.
-            args = [*args, '--terminal=yes']
+            args = [*args, '--terminal=yes', '--title=Jellyfin Player']
             keywords.update(stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             original_popen(self, args, *positional, **keywords)
             startup.record_engine(self)

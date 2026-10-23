@@ -206,7 +206,7 @@ def verify_playback(player, env, evidence):
         endpoint = fixture / 'mpv.sock'
         with (evidence / 'mpv.log').open('w') as log:
             process = subprocess.Popen([
-                str(player), '--no-config', '--no-terminal', '--force-window=yes',
+                str(player), '--no-config', '--no-terminal', '--force-window=yes', '--title=Jellyfin Player',
                 '--vo=gpu-next', '--gpu-api=vulkan', '--gpu-context=macvk', '--ao=null',
                 f'--log-file={evidence / "gpu-playback.log"}',
                 '--loop-file=inf', f'--input-ipc-server={endpoint}', str(video),
