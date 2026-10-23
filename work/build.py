@@ -38,10 +38,15 @@ shutil.copytree(mpvapp,mpv_dest,symlinks=True,ignore=shutil.ignore_patterns('_Co
 standalone=app/'Contents/Resources/mpv'
 standalone.unlink(missing_ok=True)
 standalone.symlink_to('mpv.app/Contents/MacOS/mpv')
-# Rewrite the upstream absolute MoltenVK reference to its bundled copy.
+# Rewrite upstream absolute load commands (and Sparkle's absolute install IDs).
 molten=mpv_dest/'Contents/Frameworks/libMoltenVK.dylib'
 if not molten.is_file(): raise SystemExit('mpv bundle is missing bundled MoltenVK')
 command(apple('install_name_tool'),'-change',str(Path('/opt')/'homebrew/opt/molten-vk/lib/libMoltenVK.dylib'), '@rpath/libMoltenVK.dylib',str(molten))
+for binary in (app/'Contents/Frameworks/Sparkle.framework').rglob('*'):
+ if binary.is_file():
+  deps=subprocess.run([apple('otool'),'-L',str(binary)],check=True,text=True,capture_output=True).stdout
+  if str(app) in deps:
+   command(apple('install_name_tool'),'-change',str(app), '@rpath',str(binary))
 
 for n in ['launch.py','mac_update.py','local_compat.py','runtime_update.py','managed_launch.py']:
  if (WORK/n).exists(): shutil.copy2(WORK/n,support/n)
