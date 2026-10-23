@@ -3,9 +3,9 @@ from pathlib import Path
 import hashlib, urllib.request, zipfile, os, tempfile, shutil
 ROOT=Path(__file__).resolve().parent
 LOCK=dict(line.split('=',1) for line in (ROOT/'native-dependencies.lock').read_text().splitlines() if line and not line.startswith('#'))
-path=ROOT/'mpv-release.zip'
+path=ROOT.parent/LOCK['MPV_ARCHIVE'] if LOCK.get('MPV_ARCHIVE') else ROOT/'mpv-release.zip'
 request=urllib.request.Request(LOCK['MPV_URL'],headers={'User-Agent':'jellyfin-mpv-shim-build'})
-if os.environ.get('MPV_ACQUIRE_OFFLINE') == '1':
+if LOCK.get('MPV_ARCHIVE') or os.environ.get('MPV_ACQUIRE_OFFLINE') == '1':
  if not path.is_file(): raise SystemExit(f'offline archive missing: {path}')
 else:
  with urllib.request.urlopen(request,timeout=120) as response, path.open('wb') as out:
