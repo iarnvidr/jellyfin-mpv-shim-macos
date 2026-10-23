@@ -17,12 +17,24 @@ static int gestureAxis = 0;
 static NSTimeInterval lastScrollTime = 0;
 static NSDictionary *branding;
 
+static NSData *iconPixels(NSImage *image) {
+    if (!image) return nil;
+    NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:64 pixelsHigh:64 bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:256 bitsPerPixel:32];
+    [NSGraphicsContext saveGraphicsState];
+    NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithBitmapImageRep:bitmap];
+    [image drawInRect:NSMakeRect(0, 0, 64, 64)];
+    [NSGraphicsContext restoreGraphicsState];
+    return [NSData dataWithBytes:bitmap.bitmapData length:bitmap.bytesPerRow * bitmap.pixelsHigh];
+}
+
 static void applyPlayerBranding(void) {
     NSBundle *bundle = NSBundle.mainBundle;
     NSString *iconPath = [bundle pathForResource:@"jellyfin" ofType:@"icns"];
     NSImage *icon = iconPath ? [[NSImage alloc] initWithContentsOfFile:iconPath] : nil;
     NSProcessInfo.processInfo.processName = @"Jellyfin Player";
     if (icon) NSApp.applicationIconImage = icon;
+    NSData *expectedPixels = iconPixels(icon);
+    NSData *actualPixels = iconPixels(NSApp.applicationIconImage);
     // The stock engine hardcodes these labels even when it is a named bundle.
     for (NSMenuItem *item in NSApp.mainMenu.itemArray.firstObject.submenu.itemArray) {
         if ([item.title isEqualToString:@"About mpv"]) item.title = @"About Jellyfin Player";
@@ -31,7 +43,7 @@ static void applyPlayerBranding(void) {
     }
     branding = @{@"name": NSProcessInfo.processInfo.processName,
                  @"bundle": bundle.bundlePath,
-                 @"iconMatchesJellyfin": @(icon != nil && [NSApp.applicationIconImage.TIFFRepresentation isEqualToData:icon.TIFFRepresentation])};
+                 @"iconMatchesJellyfin": @((BOOL)(expectedPixels != nil && [actualPixels isEqualToData:expectedPixels]))};
 }
 
 static void disconnectSocket(void) {
