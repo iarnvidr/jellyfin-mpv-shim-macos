@@ -64,8 +64,6 @@ def launch():
         import local_compat
         local_compat.apply(resources, package)
         from jellyfin_mpv_shim.mpv_shim import main
-        from jellyfin_mpv_shim import player as player_module
-        local_compat.patch_volume_persistence(player_module)
         main()
     except Exception as error:
         import traceback

@@ -110,6 +110,13 @@ def apply(resources, package):
         # repeating the same killed executable five times obscures the cause.
         kwargs.update(start_retries=1, start_retry_delay_ms=0, diagnose_start_failures=False)
         original_mpv_init(self, *args, **kwargs)
+        # PlayerManager constructs mpv while its module is being imported.
+        # Patch the defined class at that point; importing player earlier would
+        # initialize its singleton before main() loads the bundled engine path.
+        import sys
+        player = sys.modules.get('jellyfin_mpv_shim.player')
+        if player is not None and hasattr(player, 'PlayerManager'):
+            patch_volume_persistence(player)
     python_mpv_jsonipc.MPV.__init__ = mpv_init
     from jellyfin_mpv_shim import tray
     def start_tray(self):
