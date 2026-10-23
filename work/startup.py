@@ -47,7 +47,8 @@ def signature_results(player):
     for target in targets:
         try:
             check = subprocess.run(['/usr/bin/codesign', '--verify', '--strict', str(target)],
-                                   capture_output=True, text=True, timeout=10)
+                                   capture_output=True, text=True, timeout=10,
+                                   env={k:v for k,v in os.environ.items() if not k.startswith('DYLD_')})
             results.append({'path': str(target), 'valid': check.returncode == 0,
                             'diagnostic': redact(check.stdout + check.stderr)})
         except (OSError, subprocess.TimeoutExpired) as error:

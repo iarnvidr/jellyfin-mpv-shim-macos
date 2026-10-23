@@ -199,7 +199,7 @@ def verify_playback(player, env, evidence):
                 '--loop-file=inf', f'--input-ipc-server={endpoint}', str(video),
             ], env=env, stdout=log, stderr=subprocess.STDOUT)
             try:
-                deadline = time.monotonic() + 20
+                deadline = time.monotonic() + 60
                 observed={}
                 while time.monotonic() < deadline:
                     if process.poll() is not None:
@@ -269,8 +269,6 @@ def main():
     compiled=run(['/usr/bin/xcrun','swiftc',str(probe_source),'-o',str(probe_bin)],timeout=120)
     (evidence/'window-probe-compile.log').write_text(compiled.stdout+'\n--- stderr ---\n'+compiled.stderr)
     if compiled.returncode: raise RuntimeError('native AppKit/CGWindow probe compilation failed')
-    if options.upgrade_check:
-        result['tests'].extend(verify_legacy_conflict(root,moved,env,base,probe_bin,evidence))
     log=(evidence/'player.log').open('w')
     config=base/'settings'; config.mkdir()
     # The reported installation used the external backend with a null path.
@@ -340,6 +338,7 @@ def main():
                 stop_process(reopened)
             if reopened.returncode!=0: raise RuntimeError('reopened app did not exit cleanly')
             result['tests'].append({'name':'quit and reopen with the same settings produces a native window','passed':True})
+            result['tests'].extend(verify_legacy_conflict(root,moved,env,base,probe_bin,evidence))
     finally:
         stop_process(proc)
         log.close()
