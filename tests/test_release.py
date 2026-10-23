@@ -4,10 +4,25 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import io
+import contextlib
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import release
 
 class ReleaseTests(unittest.TestCase):
+    def test_validate_run_cli(self):
+        run={"id":123,"repository":{"full_name":"iarnvidr/jellyfin-mpv-shim-macos"},"path":".github/workflows/macos-build.yml","conclusion":"success","event":"push","head_branch":"main","head_sha":"a"*40}
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as f:
+            json.dump(run,f); f.flush()
+            with patch.object(sys,"argv",["release.py","validate-run",f.name]), patch.dict(os.environ,TRUSTED_SHA="a"*40):
+                self.assertEqual(release.main(),0)
+    def test_sign_cli_outputs_json(self):
+        signature={"edSignature":"abc==","algorithm":"EdDSA","format":"Sparkle"}
+        output=io.StringIO()
+        with patch.object(sys,"argv",["release.py","sign","app.zip"]), patch.object(release,"sign_archive",return_value=signature), contextlib.redirect_stdout(output):
+            self.assertEqual(release.main(),0)
+        self.assertEqual(json.loads(output.getvalue()),signature)
     def test_tag_and_gates(self):
         release.validate_tag("v" + release.version())
         with self.assertRaises(ValueError): release.validate_tag("v9.9.9")

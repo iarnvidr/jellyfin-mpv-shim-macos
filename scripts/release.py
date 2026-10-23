@@ -44,7 +44,7 @@ def validate_run(run, expected_sha, repository="iarnvidr/jellyfin-mpv-shim-macos
     if run.get("path") != ".github/workflows/macos-build.yml": raise ValueError("run workflow mismatch")
     if run.get("conclusion") != "success": raise ValueError("run must have succeeded")
     if run.get("event") not in ("push", "workflow_dispatch"): raise ValueError("run event is not authorized")
-    if run.get("head_branch") not in ("main", "shipping"): raise ValueError("run branch is not authorized")
+    if run.get("head_branch") != "main": raise ValueError("run branch is not authorized")
     if run.get("head_sha") != expected_sha: raise ValueError("run commit does not match trusted commit")
     return int(run["id"])
 
@@ -97,7 +97,9 @@ def sign_archive(archive, private_key, sign_update):
     if not Path(archive).is_file(): raise ValueError("update archive missing")
     # Sparkle's official sign_update accepts the key via stdin; never put secret in argv/logs.
     result=subprocess.run([sign_update, "--ed-key-file", "-", archive], input=private_key, text=True, capture_output=True, check=True)
-    return parse_signature(result.stdout+result.stderr)
+    signature = parse_signature(result.stdout+result.stderr)
+    subprocess.run([sign_update, "--ed-key-file", "-", "--verify", archive, signature["edSignature"]], input=private_key, text=True, capture_output=True, check=True)
+    return signature
 
 def _feed_entries(data):
     root=ET.fromstring(data)
@@ -148,12 +150,11 @@ def main():
         elif a.command=="require-gates": require_gates()
         elif a.command=="checksum": print(checksum(a.value))
         elif a.command=="verify-artifacts":
-            import json
             result=verify_artifacts(a.value,a.metadata or "")
             print(json.dumps(result,sort_keys=True))
-        elif a.command=="sign": print(sign_archive(a.value,os.environ.get("SPARKLE_PRIVATE_KEY"),a.sign_update))
+        elif a.command=="sign": print(json.dumps(sign_archive(a.value,os.environ.get("SPARKLE_PRIVATE_KEY"),a.sign_update),sort_keys=True))
         else:
-            require_gates(); import json
+            require_gates()
             metadata=json.loads(Path(a.metadata).read_text()); public_asset(a.asset_url,metadata["length"])
             old=Path(a.feed).read_bytes(); new=update_feed(old,metadata,a.value)
             # Write to caller-provided staging path; branch commit/push is separate atomic operation.

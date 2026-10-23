@@ -44,7 +44,11 @@ class PackageManagerFreeContract(unittest.TestCase):
             self.assertRegex(workflow, r"setup-uv@[^\n]+")
             self.assertRegex(workflow, r"version:\s*['\"]0\.13\.1['\"]")
             self.assertIn("uv python install", workflow)
-            self.assertIn("uv sync --locked --all-groups", workflow)
+            if workflow_name == "macos-build.yml":
+                self.assertIn("uv sync --locked --all-groups", workflow)
+            else:
+                self.assertIn("scripts/release.py verify-artifacts", workflow)
+                self.assertNotIn("python work/build.py", workflow)
 
     def test_native_inputs_have_pinned_provenance_not_package_manager_resolution(self):
         lock = (ROOT / "work/native-dependencies.lock").read_text()
