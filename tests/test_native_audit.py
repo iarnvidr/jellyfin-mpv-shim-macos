@@ -46,6 +46,37 @@ class NativeAuditParsing(unittest.TestCase):
                 if m: targets.append(m.group(1))
         self.assertEqual(targets,['11.0'])
 
+    def test_so_dependency_closure_inherits_module_rpath_and_follows_nested_loads(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            app=Path(temp)/'Player.app'
+            main=app/'Contents/MacOS/Jellyfin Player'
+            pillow=app/'Contents/Frameworks/PIL/Pillow.so'
+            dylibs=pillow.parent/'.dylibs'
+            nested=dylibs/'libnested.dylib'
+            leaf=dylibs/'libleaf.dylib'
+            for path in (main,pillow,nested,leaf):
+                path.parent.mkdir(parents=True,exist_ok=True); path.touch()
+            loads={
+                str(main): 'Load command 0\\n cmd LC_RPATH\\n path @executable_path/../Frameworks (offset 12)',
+                str(pillow): 'Load command 0\\n cmd LC_RPATH\\n path @loader_path/.dylibs (offset 12)\\nLoad command 1\\n cmd LC_LOAD_DYLIB\\n name @rpath/libnested.dylib (offset 24)',
+                str(nested): 'Load command 0\\n cmd LC_LOAD_DYLIB\\n name @rpath/libleaf.dylib (offset 24)',
+                str(leaf): '',
+            }
+            deps={str(main):[],str(pillow):['@rpath/libnested.dylib'],str(nested):['@rpath/libleaf.dylib'],str(leaf):[]}
+            records=[]
+            for path in (main,pillow,nested,leaf):
+                records.append({'path':str(path.relative_to(app)),'_load':loads[str(path)],'dependencies':deps[str(path)]})
+            indexed={str(app/r['path']):r for r in records}
+            stack=native_audit.context_rpaths(str(pillow),loads[str(pillow)],native_audit.context_rpaths(str(main),loads[str(main)],executable=str(main)),executable=str(main))
+            self.assertIn(str(dylibs),stack)
+            self.assertTrue(any(Path(candidate).exists() for candidate in native_audit.resolve_rpath_dependency(deps[str(pillow)][0],stack)))
+            wrong=native_audit.resolve_rpath_dependency(deps[str(pillow)][0],[str(app/'Contents/Frameworks')])
+            self.assertFalse(any(Path(candidate).exists() for candidate in wrong))
+            # Verify nested dependency is discoverable with the same propagated stack.
+            nested_stack=native_audit.context_rpaths(str(nested),loads[str(nested)],stack,executable=str(main))
+            self.assertTrue(any(Path(candidate).exists() for candidate in native_audit.resolve_rpath_dependency(deps[str(nested)][0],nested_stack)))
+
     def test_build_uses_nested_mpv_and_relocates_moltenvk_before_audit(self):
         build=Path(__file__).resolve().parents[1]/'work/build.py'
         source=build.read_text()

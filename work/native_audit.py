@@ -129,6 +129,13 @@ def audit(app):
         if executable_type(header): roots.append(path)
     main_exe=str(app/'Contents/MacOS/Jellyfin Player')
     queue=[(root,root,context_rpaths(root,by_path[root]['_load'], executable=root)) for root in roots]
+    # Python extensions run under the main executable's dyld stack. Seed them
+    # before traversal; normal graph walking then follows their transitive loads.
+    if main_exe in by_path:
+        main_stack=context_rpaths(main_exe,by_path[main_exe]['_load'],executable=main_exe)
+        for module,b in by_path.items():
+            if module.endswith('.so'):
+                queue.append((module,main_exe,context_rpaths(module,b['_load'],main_stack,executable=main_exe)))
     visited=set(); unresolved=set()
     while queue:
         loader, executable, stack=queue.pop(0)
@@ -148,13 +155,6 @@ def audit(app):
             if target in by_path:
                 child_stack=context_rpaths(target,by_path[target]['_load'],stack, executable=executable)
                 queue.append((target,executable,child_stack))
-    if main_exe in by_path:
-        stack=context_rpaths(main_exe,by_path[main_exe]['_load'],executable=main_exe)
-        for module,b in by_path.items():
-            if module.endswith('.so'):
-                for dep in b['dependencies']:
-                    if dep.startswith('@rpath/') and not any(Path(c).exists() for c in resolve_rpath_dependency(dep,stack)):
-                        unresolved.add((module,dep))
     for loader,dep in sorted(unresolved):
         problems.append(f"{Path(loader).relative_to(app)}: unresolved @rpath dependency: {dep}")
     for binary in binaries:

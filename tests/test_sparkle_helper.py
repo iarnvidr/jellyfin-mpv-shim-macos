@@ -17,6 +17,21 @@ class SparklePublicKeyTests(unittest.TestCase):
         self.assertIn("env_public_key != public_key", build)
         self.assertIn("'SPARKLE_PUBLIC_ED_KEY'", build)
 
+    def test_compiler_command_uses_helper_bundle_frameworks_rpath(self):
+        import ast
+        tree = ast.parse((WORK / 'build.py').read_text())
+        commands = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name) and node.func.id == 'command']
+        helper = next(node for node in commands if any(
+            isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name) and arg.func.id == 'str'
+            and any(isinstance(part, ast.BinOp) and isinstance(part.op, ast.Div)
+                    and isinstance(part.right, ast.Constant) and part.right.value == 'Updater.swift'
+                    for part in ast.walk(arg))
+            for arg in node.args))
+        args = [arg.value for arg in ast.walk(helper) if isinstance(arg, ast.Constant) and isinstance(arg.value, str)]
+        self.assertIn('@executable_path/../../../../Frameworks', args)
+        self.assertNotIn('@executable_path/../../../Frameworks', args)
+
     def test_seed_format_contract(self):
         # Sparkle's sign_update input is a base64-encoded Ed25519 private seed,
         # exactly 32 bytes; never load or manufacture the secret in this test.
