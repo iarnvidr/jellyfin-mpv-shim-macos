@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.DS_Store
+outputs/
+work/build-env/
+work/dist/
+work/pyinstaller/
+work/installer/
+work/mac-package-source/
+work/previous-*.app/
+work/*.spec
+work/Mac Updater
+work/native-scroll.dylib

@@ -1,0 +1,6 @@
+[submodule "work/source"]
+	path = work/source
+	url = https://github.com/jellyfin/jellyfin-mpv-shim.git
+[submodule "vendor/default-shader-pack"]
+	path = vendor/default-shader-pack
+	url = https://github.com/iwalton3/default-shader-pack.git
