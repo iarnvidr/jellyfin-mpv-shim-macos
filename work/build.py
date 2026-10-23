@@ -1,5 +1,5 @@
 from pathlib import Path
-import hashlib, importlib.metadata, os, platform, plistlib, shutil, subprocess, sys, urllib.request
+import hashlib, importlib.metadata, json, os, platform, plistlib, shutil, subprocess, sys, urllib.request
 ROOT=Path(__file__).resolve().parent.parent; WORK=ROOT/'work'; OUT=ROOT/'outputs'
 NAME='Jellyfin Player'; VERSION=(ROOT/'VERSION').read_text().strip()
 LOCK=dict(line.split('=',1) for line in (WORK/'native-dependencies.lock').read_text().splitlines() if line and not line.startswith('#'))
@@ -43,9 +43,12 @@ with player_info_path.open('wb') as f: plistlib.dump(player_info,f)
 shutil.copy2(WORK/'source/jellyfin.icns',mpv_dest/'Contents/Resources/jellyfin.icns')
 # PyInstaller's standalone copy is redundant; replace it with a launcher for the
 # verified nested application binary so runtime uses its own app resources and rpaths.
-standalone=app/'Contents/Resources/mpv'
-standalone.unlink(missing_ok=True)
-standalone.symlink_to('mpv.app/Contents/MacOS/mpv')
+# PyInstaller emits the executable into Contents/Frameworks as well as the
+# resources destination. Remove both redundant artifacts (whether file or link)
+# before signing; never remove the nested app's actual executable.
+for standalone in (app/'Contents/Frameworks/mpv', app/'Contents/Resources/mpv'):
+ if standalone.is_symlink() or standalone.is_file(): standalone.unlink()
+ elif standalone.is_dir(): shutil.rmtree(standalone)
 # Relocate actual dependency load commands and dylib install IDs (LC_ID_DYLIB).
 install_name_tool=apple('install_name_tool'); otool=apple('otool')
 molten=mpv_dest/'Contents/Frameworks/libMoltenVK.dylib'
@@ -80,8 +83,13 @@ helper=app/'Contents/Helpers/Mac Updater.app/Contents'; helper.joinpath('MacOS')
 with helper.joinpath('Info.plist').open('wb') as f: plistlib.dump({'CFBundleExecutable':'Mac Updater','CFBundleIdentifier':'org.jellyfin.mpvshim.local.updater','CFBundleName':'Jellyfin Player Updates','CFBundlePackageType':'APPL','CFBundleVersion':'1','LSUIElement':True},f)
 shutil.copytree(WORK/'Sparkle.framework',app/'Contents/Frameworks/Sparkle.framework',symlinks=True)
 notices=app/'Contents/Resources/Licenses'; notices.mkdir(exist_ok=True)
-for c in WORK.glob('*Sparkle*'):
- if c.is_file() and any(k in c.name.lower() for k in ('license','notice','readme')): shutil.copy2(c,notices/c.name)
+# The pinned official release archive contains its complete generic license at ./LICENSE.
+# Copy this exact known archive member; do not guess with wildcard matching.
+import tarfile
+with tarfile.open(sparkle,'r:xz') as archive:
+ license_member=archive.extractfile('./LICENSE')
+ if license_member is None: raise SystemExit('Pinned Sparkle archive is missing ./LICENSE')
+ (notices/'Sparkle-LICENSE.txt').write_bytes(license_member.read())
 shutil.copy2(WORK/'source/LICENSE.md',notices/'Jellyfin MPV Shim.txt')
 info_path=app/'Contents/Info.plist'
 with info_path.open('rb') as f: info=plistlib.load(f)
@@ -89,6 +97,14 @@ info.update(CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION,CFBundleN
 with info_path.open('wb') as f: plistlib.dump(info,f)
 # Provenance and inventory are generated before signing; artifact hash is added by packaging.
 manifest={'schema':1,'version':VERSION,'python':platform.python_version(),'platform':platform.platform(),'mpv':{'version':LOCK['MPV_VERSION'],'url':LOCK['MPV_URL'],'sha256':LOCK['MPV_SHA256'],'executable':'Contents/Resources/mpv.app/Contents/MacOS/mpv'},'sparkle':{'version':LOCK['SPARKLE_VERSION'],'url':LOCK['SPARKLE_URL'],'sha256':LOCK['SPARKLE_SHA256']},'inputs':{'python_lock_sha256':digest(ROOT/'uv.lock'),'native_lock_sha256':digest(WORK/'native-dependencies.lock')}}
-(app/'Contents/Resources/build-manifest.json').write_text(__import__('json').dumps(manifest,indent=2)+'\\n')
+(app/'Contents/Resources/build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 subprocess.run([sys.executable,str(WORK/'native_audit.py'),str(app)],check=True,env={**os.environ,'PATH':'/usr/bin:/bin:/usr/sbin:/sbin'})
+# Execute a copied bundle at a different path: this is a native dyld/framework-load
+# smoke check only, not a GUI or complete-update/relaunch test.
+smoke=WORK/'sparkle-helper-smoke.app'
+shutil.copytree(app,smoke,symlinks=True)
+smoke_helper=smoke/'Contents/Helpers/Mac Updater.app/Contents/MacOS/Mac Updater'
+result=subprocess.run([str(smoke_helper),'--dyld-smoke'],check=True,text=True,capture_output=True)
+if 'SPARKLE_HELPER_DYLD_OK' not in result.stdout: raise SystemExit('Sparkle helper moved-app dyld smoke failed')
+smoke.rename(WORK/'sparkle-helper-smoke-complete.app')
 command(apple('codesign'),'--force','--deep','--sign','-',str(app)); print('APP_READY',app,flush=True)

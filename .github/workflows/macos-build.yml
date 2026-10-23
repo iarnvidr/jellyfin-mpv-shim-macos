@@ -30,9 +30,13 @@ jobs:
       - name: Integration checks
         run: uv run --locked python scripts/check.py
       - name: Build app
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
         run: uv run --locked python work/build.py
       - name: Package and verify
         run: uv run --locked python work/package.py
+      - name: Native moved-bundle GUI and dyld smoke
+        run: uv run --locked python scripts/macos_smoke.py
       # Upload exactly the outputs from this single build/package invocation;
       # do not rebuild per artifact or silently omit audit/source evidence.
       - uses: actions/upload-artifact@v4

@@ -1,0 +1,47 @@
+name: Signing bootstrap
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    if: github.repository == 'jellyfin-mpv-shim/jellyfin-mpv-shim'
+    runs-on: macos-15
+    steps:
+      - name: Download and verify Sparkle 2.10 generate_keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/Sparkle-2.10.0.tar.xz"
+          curl --fail --location --silent --show-error \
+            https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz \
+            --output "$archive"
+          echo 'c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c  ' | shasum -a 256 --check --status || { echo 'Pinned Sparkle release checksum mismatch' >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          tar -xJf "$archive" -C "$RUNNER_TEMP/sparkle"
+          tool=$(find "$RUNNER_TEMP/sparkle" -type f -name generate_keys -print -quit)
+          test -n "$tool" || { echo 'generate_keys not found in verified Sparkle release' >&2; exit 1; }
+          chmod +x "$tool"
+          private="$RUNNER_TEMP/sparkle-private.txt"
+          public="$RUNNER_TEMP/sparkle-public.txt"
+          account='jellyfin-mpv-shim'
+          # Sparkle options are --account NAME, -x PRIVATE-KEY-FILE (export), and -p (print public key).
+          # First create/store the key in this ephemeral runner's login keychain.
+          "$tool" --account "$account" >"$RUNNER_TEMP/generate-keys.log" 2>&1 || { echo 'Sparkle key generation failed; details withheld' >&2; exit 1; }
+          # Export is -x, not --export. Encrypt the sensitive exported seed before artifact upload.
+          "$tool" --account "$account" -x "$private" >"$RUNNER_TEMP/export-key.log" 2>&1 || { echo 'Sparkle private-key export failed; details withheld' >&2; exit 1; }
+          "$tool" --account "$account" -p >"$public" 2>"$RUNNER_TEMP/public-key.log" || { echo 'Sparkle public-key export failed; details withheld' >&2; exit 1; }
+          test -s "$private" && test -s "$public" || { echo 'Sparkle key output is empty' >&2; exit 1; }
+          openssl cms -encrypt -aes256 -binary -in "$private" -outform DER -out "$RUNNER_TEMP/encrypted-key.der" .github/signing-transport.pem
+          mkdir -p "$RUNNER_TEMP/signing-artifact"
+          cp "$RUNNER_TEMP/encrypted-key.der" "$RUNNER_TEMP/signing-artifact/encrypted-key.der"
+          cp "$public" "$RUNNER_TEMP/signing-artifact/sparkle-ed25519-public.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signing-bootstrap
+          path: ${{ runner.temp }}/signing-artifact/*
+          if-no-files-found: error
+          retention-days: 1

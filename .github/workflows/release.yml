@@ -5,6 +5,15 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful CI run ID whose exact artifact should be preview-published
+        required: true
+        type: string
+      preview_tag:
+        description: Conventional stable version tag matching VERSION (for example v0.2.0)
+        required: true
+        type: string
 permissions:
   contents: read
 jobs:
@@ -40,10 +49,8 @@ jobs:
           path: outputs/*
           if-no-files-found: error
   trusted-publish-qualification:
-    # Dispatch this workflow against the immutable version tag only after human
-    # qualification. This job validates all gates and signed release assets; it
-    # intentionally does not publish the release or mutate the appcast.
-    if: github.event_name == 'workflow_dispatch' && github.repository == 'iarnvidr/jellyfin-mpv-shim-macos' && startsWith(github.ref, 'refs/tags/v')
+    # Preview transport signs the exact successful CI run artifact; it never updates production feed.
+    if: false # Production feed transport is intentionally unavailable in this preview workflow.
     runs-on: macos-15
     environment: production-release
     permissions:
@@ -76,6 +83,51 @@ jobs:
           EVIDENCE_ARTIFACT_REVIEW: ${{ vars.EVIDENCE_ARTIFACT_REVIEW }}
           QUALIFY_SOURCE_REVIEW: ${{ vars.QUALIFY_SOURCE_REVIEW }}
           EVIDENCE_SOURCE_REVIEW: ${{ vars.EVIDENCE_SOURCE_REVIEW }}
+  preview-publish:
+    needs: []
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'iarnvidr/jellyfin-mpv-shim-macos'
+    runs-on: macos-15
+    environment: preview-release
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate successful trusted run before accessing signing secret
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          TRUSTED_SHA: ${{ github.sha }}
+        run: |
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" > run.json
+          python3 scripts/release.py validate-run run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts" > artifacts.json
+          python3 -c 'import json,sys; d=json.load(open("artifacts.json")); a=[x for x in d["artifacts"] if x["name"] == sys.argv[1] and not x["expired"]]; assert len(a)==1, "expected exactly one matching artifact"' "Jellyfin-Player-macOS-Apple-Silicon-${RUN_ID}-${{ github.run_attempt }}"
+      - name: Download artifact belonging to validated run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "Jellyfin-Player-macOS-Apple-Silicon-${RUN_ID}-1" --dir artifacts
+      - name: Verify artifact and derive preview metadata
+        run: |
+          python3 scripts/release.py verify-artifacts artifacts '${{ inputs.preview_tag }}' > verified.json
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Install verified Sparkle signer
+        run: |
+          curl -fsSL https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz -o /tmp/sparkle.tar.xz
+          echo 'c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c  /tmp/sparkle.tar.xz' | shasum -a 256 -c -
+          mkdir /tmp/sparkle && tar -xf /tmp/sparkle.tar.xz -C /tmp/sparkle
+          find /tmp/sparkle -name sign_update -type f -exec chmod +x {} \;
+      - name: Sign update archive and create draft preview
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/release.py sign "artifacts/Jellyfin-Player-${{ inputs.preview_tag }}-Apple-Silicon.zip" --sign-update "$(find /tmp/sparkle -name sign_update -type f | head -1)" > signature.txt
+          gh release create '${{ inputs.preview_tag }}' artifacts/* --draft --verify-tag --title '${{ inputs.preview_tag }}' --notes 'Signed preview from CI run ${{ inputs.run_id }}; operator verification required before publishing. No production feed update.'
   draft:
     needs: build
     if: github.repository == 'iarnvidr/jellyfin-mpv-shim-macos' && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success'

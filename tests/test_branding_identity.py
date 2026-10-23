@@ -24,7 +24,10 @@ class BrandingIdentity(unittest.TestCase):
         self.assertIn('Library/Logs/Jellyfin MPV Shim', launch)
         self.assertIn('Library/Caches/Jellyfin MPV Shim', compat)
         self.assertIn('Jellyfin Player ', compat)
-        self.assertNotIn('rmtree', (ROOT / 'work/build.py').read_text())
+        build = (ROOT / 'work/build.py').read_text()
+        self.assertIn("shutil.rmtree(standalone)", build)
+        self.assertIn("for standalone in (app/'Contents/Frameworks/mpv', app/'Contents/Resources/mpv')", build)
+        self.assertNotIn('shutil.rmtree(Path.home()', build)
 
     def test_sparkle_receives_actual_main_app_bundle(self):
         updater = (ROOT / 'work/Updater.swift').read_text()

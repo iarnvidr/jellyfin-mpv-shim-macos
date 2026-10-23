@@ -11,6 +11,12 @@ def launch():
     os.environ['TMPDIR'] = '/tmp'
     tempfile.tempdir = '/tmp'
     resources = Path(sys._MEIPASS)
+    # Frozen app executable lives in Contents/MacOS; mpv is retained in its own
+    # nested app bundle so dyld sees that bundle's Frameworks and rpaths.
+    executable = Path(sys.executable).resolve()
+    bundle_contents = next((p for p in executable.parents if p.name == 'Contents'), None)
+    app_contents = bundle_contents or resources.parent.parent
+    player = app_contents / 'Resources/mpv.app/Contents/MacOS/mpv'
     import certifi
     os.environ['SSL_CERT_FILE'] = certifi.where()
     import mac_update
@@ -35,7 +41,6 @@ def launch():
     def load(self, *args, **kwargs):
         result = original_load(self, *args, **kwargs)
         self.apply_cli_override('mpv_ext', True)
-        player = resources / 'mpv'  # symlink into mpv.app/Contents/MacOS/mpv
         self.apply_cli_override('mpv_ext_path', str(player))
         self.apply_cli_override('enable_gui', True)
         return result

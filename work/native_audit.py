@@ -6,6 +6,7 @@ OTOOL_DEPENDENCY_RE = re.compile(r'^\s*(.+?)\s+\(compatibility version ')
 LOAD_COMMAND_SPLIT_RE = re.compile(r'(?=\nLoad command \d+)')
 
 
+
 def parse_otool_dependencies(output):
     """Return load paths from otool -L output, excluding its image header/ID."""
     return [match.group(1) for line in output.splitlines()[1:]
@@ -14,6 +15,21 @@ def parse_otool_dependencies(output):
 
 def load_command_blocks(output):
     return LOAD_COMMAND_SPLIT_RE.split(output)
+
+def rpaths_from_load_commands(output, image):
+    result=[]
+    for block in load_command_blocks(output):
+        if re.search(r'\\bcmd LC_RPATH\\b', block):
+            m=re.search(r'\\bpath (.+?) \\(offset \\d+\\)', block)
+            if m:
+                value=m.group(1)
+                result.append(str((Path(image).parent / value[len('@loader_path/'):]).resolve()) if value.startswith('@loader_path/') else value)
+    return result
+
+def resolve_rpath_dependency(dep, rpaths):
+    if not dep.startswith('@rpath/'): return None
+    suffix=dep[len('@rpath/'):]
+    return [str(Path(r.replace('@loader_path', '/')).joinpath(suffix)) for r in rpaths]
 
 def apple(tool):
     p=Path('/usr/bin')/tool
@@ -38,13 +54,17 @@ def audit(app):
         if bad: problems.append(f'{rel}: non-relative/non-system linkage: {bad}')
         if 'arm64' not in archs: problems.append(f'{rel}: missing arm64 architecture: {archs}')
         load=run('otool','-l',path)
+        rpaths=rpaths_from_load_commands(load,path)
+        for dep in deps:
+            if dep.startswith('@rpath/') and not resolve_rpath_dependency(dep,rpaths):
+                problems.append(f'{rel}: unresolved @rpath dependency without LC_RPATH: {dep}')
         # Keep dylib identity distinct from actual LC_LOAD_* dependencies: -L
         # reports the identity as its first entry, which is not a load command.
         install_ids=[]
         load_commands=[]
         for block in load_command_blocks(load):
-            cmd=re.search(r'\\bcmd (LC_[A-Z0-9_]+)', block)
-            name=re.search(r'\\bname (.+?) \\(offset \\d+\\)', block)
+            cmd=re.search(r'\bcmd (LC_[A-Z0-9_]+)', block)
+            name=re.search(r'\bname (.+?) \(offset \d+\)', block)
             if not cmd or not name: continue
             if cmd.group(1) == 'LC_ID_DYLIB': install_ids.append(name.group(1))
             elif cmd.group(1).startswith('LC_LOAD_'): load_commands.append(name.group(1))

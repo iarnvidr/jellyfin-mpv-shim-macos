@@ -12,6 +12,15 @@ class NativeAuditParsing(unittest.TestCase):
         deps=native_audit.parse_otool_dependencies(output)
         self.assertEqual(deps,['/Users/runner/work/Jellyfin MPV Shim.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle','@rpath/Other Framework.framework/Versions/A/Other Framework'])
 
+    def test_otool_l_multiple_blocks_extracts_real_load_ids_and_rpaths(self):
+        output = '''Load command 0\n      cmd LC_BUILD_VERSION\n  minos 11.0\nLoad command 1\n      cmd LC_ID_DYLIB\n         name @rpath/libThing.dylib (offset 24)\nLoad command 2\n      cmd LC_LOAD_DYLIB\n         name @rpath/Other Framework.framework/Versions/A/Other Framework (offset 24)\nLoad command 3\n      cmd LC_RPATH\n         path @loader_path/../Frameworks (offset 12)\nLoad command 4\n      cmd LC_LOAD_DYLIB\n         name /usr/lib/libSystem.B.dylib (offset 24)\n'''
+        blocks = native_audit.load_command_blocks(output)
+        commands = [b for b in blocks if 'cmd LC_' in b]
+        self.assertTrue(any('cmd LC_LOAD_DYLIB' in b for b in commands))
+        self.assertTrue(any('cmd LC_ID_DYLIB' in b for b in commands))
+        self.assertEqual(native_audit.rpaths_from_load_commands(output, '/tmp/App/Contents/Frameworks/x'), [])
+        self.assertTrue(native_audit.resolve_rpath_dependency('@rpath/Other Framework.framework/Versions/A/Other Framework', ['@loader_path/../Frameworks']))
+
     def test_version_fields_are_not_misread_as_minimum_os(self):
         load = '''Load command 0\n      cmd LC_BUILD_VERSION\n  minos 11.0\n sdk 26.0\nLoad command 1\n      cmd LC_ID_DYLIB\n current version 26.0.0\n compatibility version 1.0.0\n'''
         blocks = __import__('re').split(r'(?=\nLoad command \d+)', load)
@@ -34,7 +43,7 @@ class NativeAuditParsing(unittest.TestCase):
         self.assertLess(source.index('install_name_tool'),source.index("'native_audit.py'"))
         self.assertIn("mpv.app/Contents/MacOS/mpv",source)
         launch=(build.parent/'launch.py').read_text()
-        self.assertIn("player = resources / 'mpv'",launch)
-        self.assertIn("standalone.symlink_to('mpv.app/Contents/MacOS/mpv')",source)
+        self.assertIn("player = app_contents / 'Resources/mpv.app/Contents/MacOS/mpv'",launch)
+        self.assertIn("standalone in (app/'Contents/Frameworks/mpv', app/'Contents/Resources/mpv')",source)
 
 if __name__=='__main__': unittest.main()

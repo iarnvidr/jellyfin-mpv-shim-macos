@@ -17,7 +17,7 @@ class BundledRuntimeContract(unittest.TestCase):
         self.assertNotIn("managed_launch", imports)
         self.assertNotIn("sys.path.insert", source)
         self.assertIn("import jellyfin_mpv_shim", source)
-        self.assertIn("resources / 'mpv'", source)
+        self.assertIn("Resources/mpv.app/Contents/MacOS/mpv", source)
         self.assertIn("enable_gui", source)
 
     def test_legacy_runtime_updater_is_not_a_launch_dependency(self):

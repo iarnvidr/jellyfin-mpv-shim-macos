@@ -1,30 +1,34 @@
-# Installation, upgrade and recovery (0.2.0 preparation)
+# Installation and recovery
 
-This guide describes intended recovery behavior, not a tested release procedure. 0.2.0 is not yet released or qualified. Maintainer development, build, release, and runtime paths must not install or rely on Homebrew or any alternative system package manager. The permitted toolchain is pinned uv/Python and Xcode SDK tools, with other native inputs supplied only as verified immutable assets or controlled source builds. This is not an end-user requirement to install any such tools. Use only a release artifact whose provenance and integrity you have verified.
+Jellyfin Player is an unofficial preview for Apple Silicon Macs running macOS 15 or later. It has not been qualified through interactive GUI testing. The app is ad-hoc signed and not notarized, so macOS may show a warning or block it at first launch. The exact Gatekeeper prompt and approval experience can vary; no universal first-open flow is guaranteed.
 
-## First open
+Obtain the app only from a trusted source and verify the artifact against the release's published integrity information when available. If macOS offers a per-app **Open Anyway** approval in Privacy & Security, you may use it after deciding to trust that artifact. Do not disable Gatekeeper system-wide or remove quarantine attributes as a general workaround. Sparkle signatures, when present, are not Apple notarization.
 
-The prototype has been ad-hoc signed; it is not notarized. macOS may show an unidentified-developer warning or require approval. The exact prompt and supported per-app approval route must be observed and documented against the final artifact and OS before release. If macOS blocks opening, use only the applicable **Open Anyway** / per-app Privacy & Security approval for this app if offered, then reopen it. Do not disable Gatekeeper globally, remove quarantine attributes as a general workaround, or treat Sparkle signatures as Apple notarization.
+## Upgrade from 0.1.0
 
-## 0.1.0 to 0.2.0: one-time manual upgrade
+Upgrade manually by downloading and installing the complete Jellyfin Player app. The 0.1.0 component updater cannot update the macOS wrapper. Quit the old app before replacing it. Preserve your settings and do not delete these legacy folders as an upgrade shortcut:
 
-The 0.1.0 component updater cannot update the wrapper/native code. The first transition must be a manual download of the complete 0.2.0 app and replacement of the old app; the old updater cannot deliver this migration. Later Sparkle updates are intended to replace the whole app, but are not yet qualified.
+- `~/Library/Application Support/Jellyfin MPV Shim/Updates/`
+- `~/Library/Application Support/Jellyfin MPV Shim/Runtimes/`
 
-Quit the app, retain a copy of the prior app if you need to recover, and install the new complete app using the release-specific instructions. Do not delete user settings or legacy `Library/Application Support/Jellyfin MPV Shim/Updates/` and `Runtimes/` data as part of this upgrade. The intended new launcher ignores those legacy selections and uses its bundled environment; this behavior is pending acceptance testing. Existing connection/settings retention must be verified before release.
+The current launcher uses its bundled environment rather than legacy component/runtime selections. Keep a copy of the previous app if you may need to return to it.
 
-## Manual rollback / recovery
+Sparkle is integrated, but an end-to-end whole-app update has not been qualified. No production update feed is advertised as ready, and Sparkle is not claimed as a tested, complete replacement for the legacy updater.
 
-No automatic application-health rollback is claimed. Sparkle authenticity validation only checks an update's signature; it does not prove that the new app launches or works. If a new app fails, quit it and manually reinstall a previously retained compatible application from a verified release. Preserve user configuration and legacy runtime folders while diagnosing. If the previous app is unavailable, obtain a verified prior release; do not assume withdrawing an appcast restores an installed application. Feed withdrawal only stops future update offers and must be managed by maintainers.
+## Recovery
 
-Before publishing, maintainers must document a tested manual recovery path and retain prior release assets. Do not promise that restoring an older app preserves forward-migrated data until that migration is tested.
+If the app does not open or behaves unexpectedly, quit it and reinstall a previously retained, trusted compatible app manually. Preserve settings and the legacy folders while diagnosing. Do not assume that withdrawing an update feed can restore an already-installed app, or that reverting the app reverses any data migration.
 
-## Sparkle signing-key backup (maintainer procedure; setup not claimed)
+## Maintainer checks
 
-Release signing requires a private Ed25519 key outside Git, a narrowly scoped GitHub Actions secret for the signing workflow, and a protected recoverable backup. **This repository makes no claim that the key, secret, or backup has been generated or configured.** Before enabling publication:
+On Apple Silicon macOS 15 or later with Xcode command-line tools and pinned uv/Python, no Homebrew or other package manager is used or required. From the repository root, the locked checks and local packaging commands are:
 
-1. Generate the key using the pinned Sparkle release's documented signing utility on a controlled maintainer machine; capture the matching public key and verify it against a test update.
-2. Store the private key only in the authorized GitHub secret store for the protected release workflow. Never commit, attach to an artifact, paste in logs, or place in ordinary workspace backups.
-3. Create an encrypted offline backup under maintainer-controlled access, record the recovery custodian/location without recording the key itself, and test restoration in a non-production test feed.
-4. Restrict access, document rotation/revocation and incident response, and confirm public key in the app matches the key used for signed archives before release.
+```sh
+uv sync --locked --group build
+uv run --locked python scripts/prepare.py
+uv run --locked python scripts/check.py
+uv run --locked python work/build.py
+uv run --locked python work/package.py
+```
 
-Until all steps and an end-to-end packaged update test have evidence, publication/update gates remain pending.
+These commands do not qualify GUI behavior, notarization, or production update delivery. Sparkle integration alone is not evidence that an update feed or end-to-end update is ready.
