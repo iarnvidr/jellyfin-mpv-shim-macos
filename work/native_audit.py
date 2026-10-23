@@ -24,7 +24,7 @@ def external_runpaths(output):
     for block in load_command_blocks(output):
         if re.search(r'\bcmd LC_RPATH\b',block):
             match=re.search(r'\bpath (.+?) \(offset \d+\)',block)
-            if match and not match[1].startswith(('@loader_path/','@executable_path/',*SYSTEM_PREFIXES)):
+            if match and not match[1].startswith(('@loader_path/','@executable_path/',*SYSTEM_PREFIXES)) and match[1] not in [p.rstrip('/') for p in SYSTEM_PREFIXES]:
                 result.append(match[1])
     return list(dict.fromkeys(result))
 
@@ -101,7 +101,7 @@ def audit(app):
         if 'arm64' not in archs: problems.append(f'{rel}: missing arm64 architecture: {archs}')
         rpaths=rpaths_from_load_commands(load,path)
         for rpath in rpaths:
-            if not rpath.startswith(SYSTEM_PREFIXES) and not Path(rpath).resolve().is_relative_to(app):
+            if not rpath.startswith(SYSTEM_PREFIXES) and rpath not in [p.rstrip('/') for p in SYSTEM_PREFIXES] and not Path(rpath).resolve().is_relative_to(app):
                 problems.append(f'{rel}: external runtime search path: {rpath}')
         # The graph is rooted only at actual MH_EXECUTE images. Each traversal
         # carries the dyld stack inherited from its parent plus this loader's
