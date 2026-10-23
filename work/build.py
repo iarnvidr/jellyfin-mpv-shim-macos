@@ -33,7 +33,15 @@ app=WORK/'dist'/(NAME+'.app'); support=app/'Contents/Resources/mac_support'; sup
 # transitive dylibs, MoltenVK, Vulkan ICD resources and config next to the binary.
 mpv_dest=app/'Contents/Resources/mpv.app'
 shutil.copytree(mpvapp,mpv_dest,symlinks=True,ignore=shutil.ignore_patterns('_CodeSignature','._*','.gitkeep'))
-# PyInstaller's additional standalone executable is redundant; use the app-bundled one.
+# PyInstaller's standalone copy is redundant; replace it with a launcher for the
+# verified nested application binary so runtime uses its own app resources and rpaths.
+standalone=app/'Contents/Resources/mpv'
+standalone.unlink(missing_ok=True)
+standalone.symlink_to('mpv.app/Contents/MacOS/mpv')
+# Rewrite the upstream absolute MoltenVK reference to its bundled copy.
+molten=mpv_dest/'Contents/Frameworks/libMoltenVK.dylib'
+if not molten.is_file(): raise SystemExit('mpv bundle is missing bundled MoltenVK')
+command(apple('install_name_tool'),'-change',str(Path('/opt')/'homebrew/opt/molten-vk/lib/libMoltenVK.dylib'), '@rpath/libMoltenVK.dylib',str(molten))
 
 for n in ['launch.py','mac_update.py','local_compat.py','runtime_update.py','managed_launch.py']:
  if (WORK/n).exists(): shutil.copy2(WORK/n,support/n)

@@ -35,7 +35,7 @@ def launch():
     def load(self, *args, **kwargs):
         result = original_load(self, *args, **kwargs)
         self.apply_cli_override('mpv_ext', True)
-        player = resources / 'mpv'
+        player = resources / 'mpv'  # symlink into mpv.app/Contents/MacOS/mpv
         self.apply_cli_override('mpv_ext_path', str(player))
         self.apply_cli_override('enable_gui', True)
         return result

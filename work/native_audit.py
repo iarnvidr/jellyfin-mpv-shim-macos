@@ -22,9 +22,19 @@ def audit(app):
         bad=[d for d in deps if not d.startswith('@rpath/') and not d.startswith('@loader_path/') and not d.startswith('@executable_path/') and not d.startswith(SYSTEM_PREFIXES)]
         if bad: problems.append(f'{rel}: non-relative/non-system linkage: {bad}')
         if 'arm64' not in archs: problems.append(f'{rel}: missing arm64 architecture: {archs}')
-        load=run('otool','-l',path); targets=re.findall(r'\b(?:minos|version)\s+(\d+(?:\.\d+){0,2})',load)
+        load=run('otool','-l',path)
+        # Only LC_BUILD_VERSION's minos is a deployment target; LC_VERSION_MIN_*
+        # uses version, while dylib LC_ID_DYLIB also has a version field.
+        targets=[]
+        for block in re.split(r'(?=\nLoad command \d+)', load):
+            if re.search(r'\bcmd LC_BUILD_VERSION\b', block):
+                m=re.search(r'\bminos\s+(\d+(?:\.\d+){0,2})', block)
+                if m: targets.append(m.group(1))
+            elif re.search(r'\bcmd LC_VERSION_MIN_(?:MACOSX|IPHONEOS|TVOS|WATCHOS)\b', block):
+                m=re.search(r'\bversion\s+(\d+(?:\.\d+){0,2})', block)
+                if m: targets.append(m.group(1))
         if not targets: problems.append(f'{rel}: deployment target unavailable')
-        elif any(tuple(map(int,x.split('.'))) > (15,0) for x in targets): problems.append(f'{rel}: minimum OS exceeds macOS 15: {targets}')
+        elif any(tuple(map(int,(x.split('.')+['0'])[:2])) > (15,0) for x in targets): problems.append(f'{rel}: minimum OS exceeds macOS 15: {targets}')
         binaries.append({'path':rel,'architectures':archs,'minimum_os':targets or None,'dependencies':deps})
         files.append(rel)
     inventory=[]
