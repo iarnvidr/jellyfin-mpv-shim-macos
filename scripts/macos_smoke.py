@@ -24,7 +24,7 @@ def main():
     dyld=run([str(helper),'--dyld-smoke'],env=env,timeout=60)
     (evidence/'updater-dyld.log').write_text(dyld.stdout+'\n--- stderr ---\n'+dyld.stderr)
     framework=str(moved/'Contents/Frameworks/Sparkle.framework/')
-    ok=dyld.returncode==0 and 'SPARKLE_HELPER_DYLD_OK' in dyld.stdout and framework in dyld.stdout+dyld.stderr
+    ok=dyld.returncode==0 and 'JELLYFIN_PLAYER_SPARKLE_DYLD_OK' in dyld.stdout and framework in dyld.stdout+dyld.stderr
     result['tests'].append({'name':'moved updater loads bundled Sparkle','returncode':dyld.returncode,'framework':framework,'passed':ok})
     if not ok: raise RuntimeError('updater did not load Sparkle from moved bundle; see updater-dyld.log')
     exe=moved/'Contents/MacOS/Jellyfin Player'
