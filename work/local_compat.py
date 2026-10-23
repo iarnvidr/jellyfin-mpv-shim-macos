@@ -65,11 +65,33 @@ def apply(resources, package):
     original_popen = subprocess.Popen.__init__
     def popen(self, args, *positional, **keywords):
         if isinstance(args, (list, tuple)) and args and Path(str(args[0])).name == 'mpv':
-            env = dict(keywords.get('env') or os.environ)
-            env['DYLD_INSERT_LIBRARIES'] = str(resources / 'native-scroll.dylib')
-            keywords['env'] = env
+            from player_runtime import player_environment
+            import startup
+            keywords['env'] = player_environment(args[0], resources, keywords.get('env') or os.environ)
+            # The upstream default discards terminal output. Keep a bounded,
+            # redacted tail, drained continuously, for startup failure reports.
+            args = [*args, '--terminal=yes']
+            keywords.update(stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            original_popen(self, args, *positional, **keywords)
+            startup.record_engine(self)
+            return
         original_popen(self, args, *positional, **keywords)
     subprocess.Popen.__init__ = popen
+    import python_mpv_jsonipc
+    original_mpv_init = python_mpv_jsonipc.MPV.__init__
+    def mpv_init(self, *args, **kwargs):
+        # One process per construction. Upstream may retry once without OSC;
+        # repeating the same killed executable five times obscures the cause.
+        kwargs.update(start_retries=1, start_retry_delay_ms=0, diagnose_start_failures=False)
+        original_mpv_init(self, *args, **kwargs)
+    python_mpv_jsonipc.MPV.__init__ = mpv_init
+    from jellyfin_mpv_shim import tray
+    def start_tray(self):
+        import logging
+        self.available = False
+        self.ready.set()
+        logging.getLogger('tray').info('macOS uses the Jellyfin Player Dock icon; closing the window quits the app. Reopen it from Applications.')
+    tray.TrayManager.start = start_tray
     from jellyfin_mpv_shim import utils
     def get_resource(*parts):
         preferred = package.joinpath(*parts)

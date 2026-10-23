@@ -26,6 +26,7 @@ command('tar','-xf',str(sparkle),'-C',str(WORK))
 stage('compile native components')
 command(swiftc,str(WORK/'Updater.swift'),'-o',str(WORK/'Mac Updater'),'-F',str(WORK),'-framework','AppKit','-framework','Sparkle','-Xlinker','-rpath','-Xlinker','@executable_path/../../../../Frameworks')
 command(clang,'-dynamiclib','-fobjc-arc','-fblocks',str(WORK/'NativeScroll.m'),'-o',str(WORK/'native-scroll.dylib'),'-framework','Cocoa')
+command(swiftc,str(WORK/'StartupAlert.swift'),'-o',str(WORK/'Jellyfin Player Diagnostics'),'-framework','AppKit')
 metadata=[]
 for d in importlib.metadata.distributions():
  n=d.metadata.get('Name')
@@ -40,11 +41,14 @@ shutil.copytree(mpvapp,mpv_dest,symlinks=True,ignore=shutil.ignore_patterns('_Co
 # Brand nested app metadata using the bundled upstream Jellyfin icon.
 player_info_path=mpv_dest/'Contents/Info.plist'
 with player_info_path.open('rb') as f: player_info=plistlib.load(f)
-player_info.update(CFBundleName='Jellyfin Player',CFBundleDisplayName='Jellyfin Player',CFBundleIdentifier='org.jellyfin.mpvshim.player',CFBundleExecutable='mpv',CFBundleIconFile='jellyfin.icns')
+player_info.update(CFBundleName='Jellyfin Player',CFBundleDisplayName='Jellyfin Player',CFBundleIdentifier='org.jellyfin.mpvshim.player',CFBundleExecutable='mpv',CFBundleIconFile='jellyfin.icns',CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION)
 player_info.pop('CFBundleIconName',None)
 for key in ('CFBundleDocumentTypes','CFBundleURLTypes','UTImportedTypeDeclarations'): player_info.pop(key,None)
 with player_info_path.open('wb') as f: plistlib.dump(player_info,f)
 shutil.copy2(WORK/'source/jellyfin.icns',mpv_dest/'Contents/Resources/jellyfin.icns')
+# mpv also retains these legacy resource names; none may expose its stock icon.
+for icon in (mpv_dest/'Contents/Resources').glob('*.icns'):
+ shutil.copy2(WORK/'source/jellyfin.icns',icon)
 # PyInstaller's standalone copy is redundant; replace it with a launcher for the
 # verified nested application binary so runtime uses its own app resources and rpaths.
 # PyInstaller emits the executable into Contents/Frameworks as well as the
@@ -81,11 +85,17 @@ for binary in (app/'Contents/Frameworks/Sparkle.framework').rglob('*'):
   if match and str(app) in match.group(1):
    subprocess.run([install_name_tool,'-change',match.group(1),'@rpath/'+Path(match.group(1)).name,str(binary)],check=True)
 
-for n in ['launch.py','mac_update.py','local_compat.py','runtime_update.py','managed_launch.py']:
+for n in ['launch.py','mac_update.py','local_compat.py','player_runtime.py','mac_single_instance.py','startup.py']:
  if (WORK/n).exists(): shutil.copy2(WORK/n,support/n)
 shutil.copy2(WORK/'source/jellyfin.icns',support/'jellyfin.icns'); (app/'Contents/Frameworks/mac_support').symlink_to('../Resources/mac_support')
 helper=app/'Contents/Helpers/Mac Updater.app/Contents'; helper.joinpath('MacOS').mkdir(parents=True,exist_ok=True); shutil.copy2(WORK/'Mac Updater',helper/'MacOS/Mac Updater')
 with helper.joinpath('Info.plist').open('wb') as f: plistlib.dump({'CFBundleExecutable':'Mac Updater','CFBundleIdentifier':'org.jellyfin.mpvshim.local.updater','CFBundleName':'Jellyfin Player Updates','CFBundlePackageType':'APPL','CFBundleVersion':'1','LSUIElement':True},f)
+diagnostics=app/'Contents/Helpers/Jellyfin Player Diagnostics.app/Contents'
+diagnostics.joinpath('MacOS').mkdir(parents=True,exist_ok=True)
+diagnostics.joinpath('Resources').mkdir()
+shutil.copy2(WORK/'Jellyfin Player Diagnostics',diagnostics/'MacOS/Jellyfin Player Diagnostics')
+shutil.copy2(WORK/'source/jellyfin.icns',diagnostics/'Resources/jellyfin.icns')
+with diagnostics.joinpath('Info.plist').open('wb') as f: plistlib.dump({'CFBundleExecutable':'Jellyfin Player Diagnostics','CFBundleIdentifier':'org.jellyfin.mpvshim.local.diagnostics','CFBundleName':'Jellyfin Player','CFBundleIconFile':'jellyfin.icns','CFBundlePackageType':'APPL','CFBundleVersion':VERSION,'LSUIElement':True},f)
 shutil.copytree(WORK/'Sparkle.framework',app/'Contents/Frameworks/Sparkle.framework',symlinks=True)
 notices=app/'Contents/Resources/Licenses'; notices.mkdir(exist_ok=True)
 # The pinned official release archive contains its complete generic license at ./LICENSE.
@@ -134,4 +144,7 @@ except subprocess.TimeoutExpired as exc:
 if result.returncode != 0 or 'JELLYFIN_PLAYER_SPARKLE_DYLD_OK' not in result.stdout:
  raise SystemExit(f'Sparkle helper moved-app dyld smoke failed (exit {result.returncode}): {result.stderr}')
 smoke.rename(WORK/'sparkle-helper-smoke-complete.app')
-command(apple('codesign'),'--force','--deep','--sign','-',str(app)); print('APP_READY',app,flush=True)
+stage('sign every native image and nested bundle inside out')
+from bundle_signing import sign_bundle
+sign_bundle(app)
+print('APP_READY',app,flush=True)

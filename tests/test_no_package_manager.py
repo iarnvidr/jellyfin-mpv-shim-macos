@@ -68,7 +68,7 @@ class PackageManagerFreeContract(unittest.TestCase):
         # directory, rather than relying on ambient PATH selection.
         build = (ROOT / "work/build.py").read_text()
         package = (ROOT / "work/package.py").read_text()
-        combined = build + "\n" + package
+        combined = build + "\n" + package + "\n" + (ROOT/'work/bundle_signing.py').read_text()
         for tool in ("swiftc", "clang", "codesign", "ditto", "hdiutil"):
             # xcrun --find is preferred, but Apple command-line tools are also
             # valid at their system paths (or resolved from xcrun's toolchain).

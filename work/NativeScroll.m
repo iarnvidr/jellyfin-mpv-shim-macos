@@ -15,6 +15,24 @@ static NSString *socketPath;
 static NSMutableData *inputBuffer;
 static int gestureAxis = 0;
 static NSTimeInterval lastScrollTime = 0;
+static NSDictionary *branding;
+
+static void applyPlayerBranding(void) {
+    NSBundle *bundle = NSBundle.mainBundle;
+    NSString *iconPath = [bundle pathForResource:@"jellyfin" ofType:@"icns"];
+    NSImage *icon = iconPath ? [[NSImage alloc] initWithContentsOfFile:iconPath] : nil;
+    NSProcessInfo.processInfo.processName = @"Jellyfin Player";
+    if (icon) NSApp.applicationIconImage = icon;
+    // The stock engine hardcodes these labels even when it is a named bundle.
+    for (NSMenuItem *item in NSApp.mainMenu.itemArray.firstObject.submenu.itemArray) {
+        if ([item.title isEqualToString:@"About mpv"]) item.title = @"About Jellyfin Player";
+        if ([item.title isEqualToString:@"Hide mpv"]) item.title = @"Hide Jellyfin Player";
+        if ([item.title isEqualToString:@"Quit mpv"]) item.title = @"Quit Jellyfin Player";
+    }
+    branding = @{@"name": NSProcessInfo.processInfo.processName,
+                 @"bundle": bundle.bundlePath,
+                 @"iconMatchesJellyfin": @(icon != nil && [NSApp.applicationIconImage.TIFFRepresentation isEqualToData:icon.TIFFRepresentation])};
+}
 
 static void disconnectSocket(void) {
     atomic_store(&scrollEnabled, false);
@@ -70,10 +88,17 @@ static void connectSocket(void) {
     dispatch_resume(reader);
     writeCommand(@[@"observe_property", @9001, @"user-data/mpvtk-native-scroll"]);
     writeCommand(@[@"set_property", @"user-data/mpvtk-native-scroll-loaded", @YES]);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        applyPlayerBranding();
+        NSDictionary *identity = branding;
+        dispatch_async(ioQueue, ^{ writeCommand(@[@"set_property", @"user-data/jellyfin-macos-branding", identity]); });
+    });
 }
 
 __attribute__((constructor)) static void installNativeScrolling(void) {
     @autoreleasepool {
+        [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidFinishLaunchingNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { applyPlayerBranding(); }];
+        [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { applyPlayerBranding(); }];
         NSArray<NSString *> *arguments = NSProcessInfo.processInfo.arguments;
         for (NSUInteger i = 0; i < arguments.count; i++) {
             NSString *arg = arguments[i];

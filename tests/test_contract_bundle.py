@@ -35,7 +35,8 @@ class MacIntegrationContract(unittest.TestCase):
     def test_native_scrolling_and_settings_update_entry_remain(self):
         compat = (WORK / "local_compat.py").read_text()
         native = (WORK / "NativeScroll.m").read_text()
-        self.assertIn("DYLD_INSERT_LIBRARIES", compat)
+        self.assertIn("player_environment", compat)
+        self.assertIn("DYLD_INSERT_LIBRARIES", (WORK / 'player_runtime.py').read_text())
         self.assertIn("mpvtk-native-scroll", compat)
         self.assertIn("scrollingDeltaY", native)
         self.assertIn("Check for Updates", compat)

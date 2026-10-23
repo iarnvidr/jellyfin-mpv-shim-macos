@@ -71,7 +71,10 @@ run('ditto','-c','-k','--sequesterRsrc','--keepParent',str(app),str(archive))
 source=OUT/f'Jellyfin-Player-{VERSION}-Source.zip'
 source_revision, source_digest = make_source_zip(source)
 
-run('codesign','--verify','--deep','--strict',str(app)); run('hdiutil','verify',str(dmg))
+from bundle_signing import verify_bundle
+signature_audit=OUT/f'Jellyfin-Player-{VERSION}-Signatures.json'
+signature_audit.write_text(json.dumps(verify_bundle(app),indent=2)+'\n')
+run('hdiutil','verify',str(dmg))
 manifest=app/'Contents/Resources/build-manifest.json'
 if not manifest.is_file(): raise SystemExit('Missing in-app build manifest')
 def verify_manifest(path):
@@ -106,6 +109,6 @@ bundle_inventory.write_text(json.dumps(inventory,indent=2)+'\n')
 manifest_copy=OUT/f'Jellyfin-Player-{VERSION}-Build-Manifest.json'
 shutil.copy2(manifest,manifest_copy)
 verify_manifest(manifest_copy)
-files=[dmg,archive,source,manifest_copy,bundle_inventory,audit]
+files=[dmg,archive,source,manifest_copy,bundle_inventory,audit,signature_audit]
 (OUT/'SHA256SUMS').write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
 print(json.dumps({'dmg':str(dmg),'update_archive':str(archive),'source':str(source),'manifest':str(manifest_copy),'native_audit':str(audit),'inventory':str(bundle_inventory),'checksums':str(OUT/'SHA256SUMS')}))

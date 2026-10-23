@@ -22,7 +22,6 @@ def launch():
     import mac_update
     if len(sys.argv) > 1 and sys.argv[1].startswith('--mac-update-'):
         raise SystemExit(mac_update.worker(sys.argv[1:]))
-    managed = None
     logs = Path.home() / 'Library/Logs/Jellyfin MPV Shim'
     logs.mkdir(parents=True, exist_ok=True)
     sys.stdout = open(logs / 'launcher.log', 'a', buffering=1)
@@ -43,13 +42,26 @@ def launch():
         self.apply_cli_override('mpv_ext', True)
         self.apply_cli_override('mpv_ext_path', str(player))
         self.apply_cli_override('enable_gui', True)
+        self.apply_cli_override('close_to_tray', False)
+        self.apply_cli_override('allow_background', False)
+        self.apply_cli_override('start_minimized', False)
         return result
 
     Settings.load = load
     import local_compat
     local_compat.apply(resources, package)
-    from jellyfin_mpv_shim.mpv_shim import main
-    main()
+    import mac_single_instance
+    mac_single_instance.install(executable)
+    try:
+        from jellyfin_mpv_shim.mpv_shim import main
+        main()
+    except Exception as error:
+        import traceback
+        traceback.print_exc()
+        import startup
+        report, message = startup.write_report(error, app_contents.parent, player, logs)
+        startup.show_error(app_contents.parent, report, message)
+        raise SystemExit(1)
 
 
 if __name__ == '__main__':

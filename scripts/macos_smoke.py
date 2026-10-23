@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Exercise moved packaged macOS executables and collect native GUI evidence."""
-import json, os, pathlib, shutil, socket, subprocess, sys, tempfile, time
+import argparse, json, os, pathlib, shutil, socket, subprocess, sys, tempfile, time
 
 TEMP_HOME = None
 
@@ -81,7 +81,8 @@ def verify_playback(player, env, evidence):
         endpoint = fixture / 'mpv.sock'
         with (evidence / 'mpv.log').open('w') as log:
             process = subprocess.Popen([
-                str(player), '--no-config', '--no-terminal', '--vo=null', '--ao=null',
+                str(player), '--no-config', '--no-terminal', '--force-window=yes',
+                '--vo=gpu-next', '--gpu-api=vulkan', '--gpu-context=macvk', '--ao=null',
                 '--loop-file=inf', f'--input-ipc-server={endpoint}', str(video),
             ], env=env, stdout=log, stderr=subprocess.STDOUT)
             try:
@@ -95,9 +96,15 @@ def verify_playback(player, env, evidence):
                         if isinstance(params, dict) and params.get('w') == 160 and params.get('h') == 90 and isinstance(first, (int, float)):
                             time.sleep(0.5)
                             second = ipc_property(endpoint, 'time-pos')
-                            if isinstance(second, (int, float)) and second > first:
+                            identity = ipc_property(endpoint, 'user-data/jellyfin-macos-branding')
+                            vo = ipc_property(endpoint, 'current-vo')
+                            if isinstance(second, (int, float)) and second > first and vo == 'gpu-next':
+                                if not isinstance(identity, dict) or identity.get('name') != 'Jellyfin Player' or identity.get('iconMatchesJellyfin') is not True:
+                                    time.sleep(0.2)
+                                    continue
                                 return {'name': 'bundled mpv decodes video and advances playback',
-                                        'passed': True, 'videoParams': params, 'timePositions': [first, second]}
+                                        'passed': True, 'videoParams': params, 'timePositions': [first, second],
+                                        'videoOutput': vo, 'runtimeBranding': identity}
                     except (OSError, ValueError):
                         pass
                     time.sleep(0.2)
@@ -112,12 +119,23 @@ def main():
         print('UNSUPPORTED: native smoke requires macOS; host is ' + sys.platform)
         return 0
     root=pathlib.Path(__file__).resolve().parents[1]
-    app=root/'work/dist/Jellyfin Player.app'
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--app', type=pathlib.Path, default=root/'work/dist/Jellyfin Player.app')
+    parser.add_argument('--evidence', type=pathlib.Path, default=root/'outputs/macos-smoke-evidence')
+    options=parser.parse_args()
+    app=options.app
     if not app.is_dir(): raise RuntimeError(f'packaged app missing: {app}')
-    evidence=root/'outputs/macos-smoke-evidence'; evidence.mkdir(parents=True,exist_ok=True)
+    evidence=options.evidence; evidence.mkdir(parents=True,exist_ok=True)
     base=pathlib.Path(tempfile.mkdtemp(prefix='jellyfin smoke ')); home=base/'home'; home.mkdir(); TEMP_HOME=home
     moved=base/'MOVED app with spaces'/'Jellyfin Player.app'; moved.parent.mkdir(); shutil.copytree(app,moved,symlinks=True)
-    env={**os.environ,'HOME':str(home),'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','TMPDIR':str(base),'LANG':'en_US.UTF-8','LC_ALL':'en_US.UTF-8','DYLD_PRINT_LIBRARIES':'1'}
+    sys.path.insert(0, str(root/'work'))
+    from bundle_signing import verify_bundle
+    from player_runtime import player_environment
+    signature_report=verify_bundle(moved)
+    (evidence/'signatures.json').write_text(json.dumps(signature_report,indent=2)+'\n')
+    player=moved/'Contents/Resources/mpv.app/Contents/MacOS/mpv'
+    inherited={**os.environ,'HOME':str(home),'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','TMPDIR':str(base),'LANG':'en_US.UTF-8','LC_ALL':'en_US.UTF-8'}
+    env={**inherited,'DYLD_PRINT_LIBRARIES':'1'}
     result={'host':run(['/usr/bin/sw_vers']).stdout,'app':str(moved),'profile':str(home),'tests':[]}
     helper=moved/'Contents/Helpers/Mac Updater.app/Contents/MacOS/Mac Updater'
     if not helper.is_file(): raise RuntimeError(f'updater executable missing: {helper}')
@@ -174,7 +192,15 @@ def main():
         result['tests'].append({'name':'native app liveness and ownerPID window','launcherPID':proc.pid,'ownerPID':state['pid'],'ownerDetails':owner_details,'windowCount':windows,'passed':True})
         player=moved/'Contents/Resources/mpv.app/Contents/MacOS/mpv'
         if not player.is_file(): raise RuntimeError(f'branded mpv executable missing: {player}')
-        result['tests'].append(verify_playback(player,env,evidence))
+        player_env=player_environment(player,moved/'Contents/Frameworks',inherited)
+        player_env['DYLD_PRINT_LIBRARIES']='1'
+        result['tests'].append(verify_playback(player,player_env,evidence))
+        loaded=(evidence/'mpv.log').read_text()
+        if '/opt/homebrew/' in loaded or '/usr/local/Cellar/' in loaded:
+            raise RuntimeError('packaged player loaded a Homebrew native dependency')
+        if not any('mpv.app/Contents/Frameworks/libMoltenVK.dylib' in line for line in loaded.splitlines()):
+            raise RuntimeError('windowed Vulkan playback did not load bundled MoltenVK')
+        result['tests'].append({'name':'Vulkan uses bundled MoltenVK only','passed':True})
         stop_process(proc)
         if proc.returncode != 0: raise RuntimeError(f'main app did not shut down cleanly on SIGTERM: {proc.returncode}')
         result['tests'].append({'name':'main app handles SIGTERM and exits cleanly','returncode':proc.returncode,'passed':True})

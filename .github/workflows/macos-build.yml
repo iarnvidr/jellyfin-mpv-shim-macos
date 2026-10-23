@@ -35,8 +35,8 @@ jobs:
         run: uv run --locked python work/build.py
       - name: Package and verify
         run: uv run --locked python work/package.py
-      - name: Native moved-bundle GUI and dyld smoke
-        run: uv run --locked python scripts/macos_smoke.py
+      - name: Verify extracted DMG and update ZIP with native windows and playback
+        run: uv run --locked python scripts/distribution_check.py
       - name: Upload native smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -58,6 +58,7 @@ jobs:
             outputs/*-Build-Manifest.json
             outputs/*-Native-Audit.json
             outputs/*-Bundle-Inventory.json
+            outputs/*-Signatures.json
             outputs/SHA256SUMS
           if-no-files-found: error
           compression-level: 0
