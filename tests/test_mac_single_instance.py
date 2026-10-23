@@ -85,6 +85,15 @@ class MacInstanceUpgrade(unittest.TestCase):
             with self.assertRaisesRegex(StartupFailure,'lock cannot be opened'):
                 self.instance().acquire()
 
+    def test_early_owner_can_reenter_upstream_start_without_releasing_profile(self):
+        primary=self.instance()
+        self.assertTrue(primary.acquire())
+        endpoint=Path(self.guard).read_bytes()
+        self.assertTrue(primary.acquire())
+        self.assertTrue(primary.holds_lock)
+        self.assertEqual(Path(self.guard).read_bytes(),endpoint)
+        with self.assertRaises(StartupFailure): self.instance().acquire()
+
     def test_magic_header_without_ok_is_not_an_acknowledgement(self):
         from unittest.mock import MagicMock
         connection=MagicMock()

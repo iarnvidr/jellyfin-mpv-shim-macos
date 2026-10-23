@@ -48,12 +48,21 @@ def launch():
         return result
 
     Settings.load = load
-    import local_compat
-    local_compat.apply(resources, package)
     import mac_single_instance
     import startup
-    mac_single_instance.install(executable, activation_check=lambda: startup.WINDOW_ACTIVATION)
+    guard_class = mac_single_instance.install(executable, activation_check=lambda: startup.WINDOW_ACTIVATION)
     try:
+        from jellyfin_mpv_shim.args import get_args
+        if 'stop' not in get_args().command:
+            guard = guard_class()
+            if not guard.acquire():
+                return
+            from jellyfin_mpv_shim import single_instance
+            single_instance.SingleInstance = lambda: guard
+        # Settings.load can migrate/save before upstream acquires its guard.
+        # Own the shared profile first, including the renderer cache writes.
+        import local_compat
+        local_compat.apply(resources, package)
         from jellyfin_mpv_shim.mpv_shim import main
         main()
     except Exception as error:

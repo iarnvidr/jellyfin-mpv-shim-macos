@@ -143,6 +143,8 @@ def verify_legacy_conflict(root, app, env, base, probe_bin, evidence):
     reports=[]
     for mode in ('hidden','minimized'):
         config=base/f'legacy-{mode}'; config.mkdir()
+        saved_settings=b'{"mpv_ext":true,"mpv_ext_path":null,"ui_scale":1.25}\n'
+        (config/'conf.json').write_bytes(saved_settings)
         ready=config/'ready'
         legacy=subprocess.Popen([str(executable),str(config),mode,str(ready)],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         newcomer=None
@@ -176,6 +178,8 @@ def verify_legacy_conflict(root, app, env, base, probe_bin, evidence):
                 except BlockingIOError: pass
                 else: raise RuntimeError('upgrade conflict lost protection of shared settings')
             if legacy.poll() is not None: raise RuntimeError('new app stopped legacy process without user action')
+            if (config/'conf.json').read_bytes()!=saved_settings:
+                raise RuntimeError('new app migrated/wrote shared settings before resolving the legacy lock')
             for pid in dialogs: os.kill(pid,15)
             newcomer.wait(timeout=10)
             if newcomer.returncode != 1: raise RuntimeError('instance conflict must exit with a failure status')

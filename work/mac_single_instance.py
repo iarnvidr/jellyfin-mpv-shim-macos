@@ -55,6 +55,11 @@ def install(executable, activation_check=None):
             super().__init__()
             self._initial_activation = self.on_activate
 
+        def acquire(self):
+            # The launcher takes this lock before settings migrations. Upstream
+            # main then receives the same owner and can safely acquire again.
+            return True if self.holds_lock else super().acquire()
+
         def _try_lock(self):
             result = super()._try_lock()
             if result is None:
