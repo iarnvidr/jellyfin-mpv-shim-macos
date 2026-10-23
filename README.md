@@ -2,7 +2,7 @@
 
 [Jellyfin Player](https://github.com/iarnvidr/jellyfin-mpv-shim-macos) is an unofficial macOS app based on [Jellyfin MPV Shim](https://github.com/jellyfin/jellyfin-mpv-shim). It packages the client with a macOS launcher, native scroll integration, and the standard Jellyfin application icon. The app is named **Jellyfin Player**.
 
-This is a preview for **Apple Silicon (arm64), macOS 15 or later**. Native macOS CI verifies the Jellyfin Player window, bundled Sparkle loading after moving the app, decoded video playback, and clean shutdown. First-open approval and a complete Sparkle install/relaunch still need validation on a user's Mac. The app is ad-hoc signed, not Developer ID signed or notarized. On first open, Gatekeeper may require per-app approval under **System Settings → Privacy & Security → Open Anyway**. Exact prompts vary by macOS version.
+This is a preview for **Apple Silicon (arm64), macOS 15.7.9 or later**. Native macOS CI verifies the Jellyfin Player window, bundled Sparkle loading after moving the app, decoded video playback, and clean shutdown. First-open approval and a complete Sparkle install/relaunch still need validation on a user's Mac. The app is ad-hoc signed, not Developer ID signed or notarized. On first open, Gatekeeper may require per-app approval under **System Settings → Privacy & Security → Open Anyway**. Exact prompts vary by macOS version.
 
 ## Installation and updates
 
@@ -14,7 +14,7 @@ Sparkle checks the repository's GitHub-hosted appcast and downloads complete app
 
 ## Build and checks (maintainers)
 
-Build on Apple Silicon macOS 15 or later with Xcode command-line tools and the repository's pinned uv/Python toolchain. No Homebrew or other package manager is used or required at any stage. From the repository root:
+Build on Apple Silicon macOS 15.7.9 or later with Xcode command-line tools and the repository's pinned uv/Python toolchain. No Homebrew or other package manager is used or required at any stage. From the repository root:
 
 ```sh
 uv sync --locked --group build

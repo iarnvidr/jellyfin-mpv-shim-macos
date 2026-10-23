@@ -1,4 +1,5 @@
 from pathlib import Path
+from native_audit import MINIMUM_MACOS
 import hashlib, importlib.metadata, json, os, platform, plistlib, shutil, subprocess, sys, urllib.request
 ROOT=Path(__file__).resolve().parent.parent; WORK=ROOT/'work'; OUT=ROOT/'outputs'
 NAME='Jellyfin Player'; VERSION=(ROOT/'VERSION').read_text().strip()
@@ -117,7 +118,7 @@ except Exception as exc: raise SystemExit('Invalid configured Sparkle public key
 if len(public_key_bytes)!=32: raise SystemExit('Sparkle public key must decode to 32 bytes')
 env_public_key=os.environ.get('SPARKLE_PUBLIC_ED_KEY')
 if env_public_key is not None and env_public_key != public_key: raise SystemExit('SPARKLE_PUBLIC_ED_KEY does not match the configured Sparkle public key')
-info.update(CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION,CFBundleName='Jellyfin Player',CFBundleDisplayName='Jellyfin Player',CFBundleExecutable='Jellyfin Player',LSMinimumSystemVersion='15.0',NSHighResolutionCapable=True,SUFeedURL='https://raw.githubusercontent.com/iarnvidr/jellyfin-mpv-shim-macos/updates/appcast.xml',SUPublicEDKey=public_key)
+info.update(CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION,CFBundleName='Jellyfin Player',CFBundleDisplayName='Jellyfin Player',CFBundleExecutable='Jellyfin Player',LSMinimumSystemVersion=MINIMUM_MACOS,NSHighResolutionCapable=True,SUFeedURL='https://raw.githubusercontent.com/iarnvidr/jellyfin-mpv-shim-macos/updates/appcast.xml',SUPublicEDKey=public_key)
 info.update(NSLocalNetworkUsageDescription='Find and connect to your Jellyfin server on your local network.',
             NSBonjourServices=['_jellyfin._tcp'])
 with info_path.open('wb') as f: plistlib.dump(info,f)

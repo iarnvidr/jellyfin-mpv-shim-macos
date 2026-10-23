@@ -6,6 +6,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'work'))
 import native_audit
 
+
+class DeploymentVersion(unittest.TestCase):
+    def test_patch_versions_are_enforced(self):
+        minimum = native_audit.deployment_version(native_audit.MINIMUM_MACOS)
+        self.assertEqual(minimum, (15, 7, 9))
+        self.assertLess(native_audit.deployment_version('15'), minimum)
+        self.assertEqual(native_audit.deployment_version('15.0'), (15, 0, 0))
+        self.assertLess(native_audit.deployment_version('15.7.8'), minimum)
+        self.assertGreater(native_audit.deployment_version('15.7.10'), minimum)
+        self.assertGreater(native_audit.deployment_version('16.0'), minimum)
+
 class NativeAuditParsing(unittest.TestCase):
     def test_external_runpaths_are_removed_without_removing_bundle_or_apple_paths(self):
         values=['@executable_path/lib','/opt/homebrew/Cellar/vulkan-loader/1.4/lib','@loader_path/../Frameworks','/usr/lib','/tmp/old-build/lib']
