@@ -14,7 +14,7 @@ formula=json.loads(urllib.request.urlopen(LOCK['MPV_SOURCE']).read())
 bottle=formula['bottle']['stable']['files']['arm64_sequoia']
 if bottle['sha256']!=LOCK['MPV_ARCHIVE_SHA256'] or formula['versions']['stable'] not in LOCK['MPV_REVISION']: raise SystemExit('mpv formula provenance changed')
 command('brew','fetch','--force','--bottle-tag=arm64_sequoia','--retry','mpv')
-mpv=Path(subprocess.check_output(['brew','--cache','mpv'],text=True).strip())
+mpv=Path(subprocess.check_output(['brew','--cache','--bottle','mpv'],text=True).strip())
 if not mpv.is_file(): raise SystemExit(f'mpv bottle missing from Homebrew cache: {mpv}')
 if digest(mpv)!=LOCK['MPV_ARCHIVE_SHA256']: raise SystemExit('mpv bottle hash mismatch')
 command('brew','install','mpv')
