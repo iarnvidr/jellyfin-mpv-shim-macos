@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Jellyfin Player Updates</title>
+    <link>https://github.com/iarnvidr/jellyfin-mpv-shim-macos/releases</link>
+    <description>Updates for Jellyfin Player on macOS.</description>
+    <language>en</language>
+  </channel>
+</rss>
