@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -50,6 +51,18 @@ class ReleaseTests(unittest.TestCase):
             bad=dict(good); bad[key]=value
             with self.assertRaises(ValueError): release.validate_run(bad,"a"*40)
         with self.assertRaises(ValueError): release.validate_run(dict(good,repository={"full_name":"attacker/repo"}),"a"*40)
+    def test_artifact_id_uses_api_identity(self):
+        self.assertEqual(release.find_run_artifact({"artifacts":[{"id":987,"name":"wanted","expired":False}]},"wanted"),987)
+        for artifacts in ({"artifacts":[{"id":1,"name":"other","expired":False}]},{"artifacts":[{"id":1,"name":"wanted","expired":True}]},{"artifacts":[{"id":1,"name":"wanted","expired":False},{"id":2,"name":"wanted","expired":False}]}):
+            with self.assertRaises(ValueError): release.find_run_artifact(artifacts,"wanted")
+    def test_signature_asset_added_to_checksum_inventory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d=Path(tmp); (d/"SHA256SUMS").write_text("a"*64+"  package.zip\\n")
+            sig=release.write_signature_assets(d,{"edSignature":"abc","algorithm":"EdDSA","format":"Sparkle"},"package.zip")
+            data=json.loads(sig.read_text())
+            self.assertEqual(data["edSignature"],"abc")
+            row=(d/"SHA256SUMS").read_text().splitlines()[-1]
+            self.assertEqual(row,f"{release.checksum(sig)}  signature.json")
     def test_signer_secret_is_not_argument(self):
         with tempfile.NamedTemporaryFile() as archive:
             with self.assertRaises((FileNotFoundError, ValueError)): release.sign_archive(archive.name,None,"nonexistent-sign_update")

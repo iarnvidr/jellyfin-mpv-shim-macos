@@ -93,7 +93,16 @@ with tarfile.open(sparkle,'r:xz') as archive:
 shutil.copy2(WORK/'source/LICENSE.md',notices/'Jellyfin MPV Shim.txt')
 info_path=app/'Contents/Info.plist'
 with info_path.open('rb') as f: info=plistlib.load(f)
-info.update(CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION,CFBundleName='Jellyfin Player',CFBundleDisplayName='Jellyfin Player',CFBundleExecutable='Jellyfin Player',LSMinimumSystemVersion='15.0',NSHighResolutionCapable=True,SUFeedURL='https://raw.githubusercontent.com/iarnvidr/jellyfin-mpv-shim-macos/updates/appcast.xml',SUPublicEDKey=os.environ.get('SPARKLE_PUBLIC_ED_KEY',''))
+# Pin the public trust root in tracked configuration; environment overrides are
+# accepted only when they match, preventing accidental signing-key mismatches.
+public_key=(WORK/'sparkle-public-key.txt').read_text().strip()
+import base64
+try: public_key_bytes=base64.b64decode(public_key,validate=True)
+except Exception as exc: raise SystemExit('Invalid configured Sparkle public key') from exc
+if len(public_key_bytes)!=32: raise SystemExit('Sparkle public key must decode to 32 bytes')
+env_public_key=os.environ.get('SPARKLE_PUBLIC_ED_KEY')
+if env_public_key is not None and env_public_key != public_key: raise SystemExit('SPARKLE_PUBLIC_ED_KEY does not match the configured Sparkle public key')
+info.update(CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION,CFBundleName='Jellyfin Player',CFBundleDisplayName='Jellyfin Player',CFBundleExecutable='Jellyfin Player',LSMinimumSystemVersion='15.0',NSHighResolutionCapable=True,SUFeedURL='https://raw.githubusercontent.com/iarnvidr/jellyfin-mpv-shim-macos/updates/appcast.xml',SUPublicEDKey=public_key)
 with info_path.open('wb') as f: plistlib.dump(info,f)
 # Provenance and inventory are generated before signing; artifact hash is added by packaging.
 manifest={'schema':1,'version':VERSION,'python':platform.python_version(),'platform':platform.platform(),'mpv':{'version':LOCK['MPV_VERSION'],'url':LOCK['MPV_URL'],'sha256':LOCK['MPV_SHA256'],'executable':'Contents/Resources/mpv.app/Contents/MacOS/mpv'},'sparkle':{'version':LOCK['SPARKLE_VERSION'],'url':LOCK['SPARKLE_URL'],'sha256':LOCK['SPARKLE_SHA256']},'inputs':{'python_lock_sha256':digest(ROOT/'uv.lock'),'native_lock_sha256':digest(WORK/'native-dependencies.lock')}}

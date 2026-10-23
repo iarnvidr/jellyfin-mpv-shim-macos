@@ -69,11 +69,27 @@ def verify_artifacts(directory, tag):
         m=re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)",line)
         if not m or m[2] in sums: raise ValueError("malformed or duplicate SHA256SUMS entry")
         sums[m[2]]=m[1]
-    expected=required-{"SHA256SUMS"}
+    expected=names-{"SHA256SUMS"}
     if set(sums)!=expected: raise ValueError("SHA256SUMS must list exactly the release assets")
     for name in expected:
         if sums.get(name)!=checksum(d/name): raise ValueError(f"checksum mismatch: {name}")
-    return {"version":ver,"archive":archive,"dmg":dmg,"source":source,"manifest":manifest,"length":(d/archive).stat().st_size}
+    return {"version":ver,"archive":archive,"dmg":dmg,"source":source,"manifest":manifest,"length":(d/archive).stat().st_size,"inventory":sorted(names)}
+
+def find_run_artifact(artifacts, expected_name):
+    matches=[a for a in artifacts.get("artifacts",[]) if a.get("name")==expected_name and not a.get("expired")]
+    if len(matches)!=1 or not str(matches[0].get("id", "")).isdigit(): raise ValueError("expected exactly one unexpired artifact with numeric id")
+    return int(matches[0]["id"])
+
+def write_signature_assets(directory, signature, archive_name):
+    d=Path(directory)
+    metadata={"archive":archive_name, **signature}
+    path=d/"signature.json"
+    path.write_text(json.dumps(metadata,sort_keys=True,indent=2)+"\n")
+    sums=d/"SHA256SUMS"
+    rows=[line for line in sums.read_text().splitlines() if not line.endswith("  signature.json")]
+    rows.append(f"{checksum(path)}  signature.json")
+    sums.write_text("\n".join(sorted(rows))+"\n")
+    return path
 
 def sign_archive(archive, private_key, sign_update):
     if not private_key: raise ValueError("SPARKLE_PRIVATE_KEY secret required")

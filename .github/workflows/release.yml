@@ -105,12 +105,12 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" > run.json
           python3 scripts/release.py validate-run run.json
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts" > artifacts.json
-          python3 -c 'import json,sys; d=json.load(open("artifacts.json")); a=[x for x in d["artifacts"] if x["name"] == sys.argv[1] and not x["expired"]]; assert len(a)==1, "expected exactly one matching artifact"' "Jellyfin-Player-macOS-Apple-Silicon-${RUN_ID}-${{ github.run_attempt }}"
+          python3 -c 'import json,sys; sys.path.insert(0,"scripts"); import release; print(release.find_run_artifact(json.load(open("artifacts.json")),sys.argv[1]))' "Jellyfin-Player-release-candidate-${{ inputs.preview_tag }}" > artifact-id.txt
       - name: Download artifact belonging to validated run
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ inputs.run_id }}
-        run: gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "Jellyfin-Player-macOS-Apple-Silicon-${RUN_ID}-1" --dir artifacts
+        run: gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/$(cat artifact-id.txt)/zip" > artifact.zip && mkdir artifacts && unzip -q artifact.zip -d artifacts
       - name: Verify artifact and derive preview metadata
         run: |
           python3 scripts/release.py verify-artifacts artifacts '${{ inputs.preview_tag }}' > verified.json
@@ -126,8 +126,10 @@ jobs:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 scripts/release.py sign "artifacts/Jellyfin-Player-${{ inputs.preview_tag }}-Apple-Silicon.zip" --sign-update "$(find /tmp/sparkle -name sign_update -type f | head -1)" > signature.txt
-          gh release create '${{ inputs.preview_tag }}' artifacts/* --draft --verify-tag --title '${{ inputs.preview_tag }}' --notes 'Signed preview from CI run ${{ inputs.run_id }}; operator verification required before publishing. No production feed update.'
+          ARCHIVE="artifacts/Jellyfin-Player-$(cat VERSION)-Apple-Silicon.zip"
+          python3 scripts/release.py sign "$ARCHIVE" --sign-update "$(find /tmp/sparkle -name sign_update -type f | head -1)" > signature.json
+          python3 -c 'import json,sys; sys.path.insert(0,"scripts"); import release; release.write_signature_assets("artifacts",json.load(open("signature.json")),sys.argv[1])' "$(basename "$ARCHIVE")"
+          gh release create '${{ inputs.preview_tag }}' artifacts/* --draft --prerelease --verify-tag --title '${{ inputs.preview_tag }}' --notes 'Signed preview from CI run ${{ inputs.run_id }}; operator verification required before publishing. No production feed update.'
   draft:
     needs: build
     if: github.repository == 'iarnvidr/jellyfin-mpv-shim-macos' && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success'
