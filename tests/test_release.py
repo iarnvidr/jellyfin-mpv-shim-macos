@@ -28,6 +28,16 @@ class ReleaseTests(unittest.TestCase):
     def test_feed_rejects_wrong_url_and_invalid_xml(self):
         with self.assertRaises(ValueError): release.update_feed(b'<bad',{},"v0.2.0","https://bad")
         with self.assertRaises(Exception): release.update_feed(b'<rss/>',{},"v0.2.0","https://bad")
+    def test_signer_uses_official_stdin_key_syntax(self):
+        import unittest.mock
+        with tempfile.NamedTemporaryFile() as archive, tempfile.NamedTemporaryFile() as tool:
+            tool.write(b"tool"); tool.flush()
+            result = unittest.mock.Mock(stdout='sparkle:edSignature="signed"', stderr='')
+            with unittest.mock.patch.object(release.subprocess, "run", return_value=result) as run:
+                self.assertEqual(release.sign_archive(archive.name, "private", tool.name), "signed")
+                args = run.call_args
+                self.assertEqual(args.args[0][1:3], ["--ed-key-file", "-"])
+                self.assertEqual(args.kwargs["input"], "private")
     def test_signer_secret_is_not_argument(self):
         with tempfile.NamedTemporaryFile() as archive:
             with self.assertRaises((FileNotFoundError, ValueError)): release.sign_archive(archive.name,None,"nonexistent-sign_update")

@@ -16,12 +16,12 @@ jobs:
         with:
           submodules: recursive
           ref: ${{ github.ref }}
-      - name: Verify immutable version identity
-        run: uvx --from 'uv==0.13.1' python scripts/release.py validate-tag '${{ github.ref_name }}'
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.13.1'
           enable-cache: true
+      - name: Verify immutable version identity
+        run: uv run --locked --no-sync python scripts/release.py validate-tag '${{ github.ref_name }}'
       - run: test "$(uname -m)" = arm64
       - run: uv python install
       - run: uv run --locked --no-sync python scripts/prepare.py
@@ -32,12 +32,49 @@ jobs:
       - run: uv run --locked python work/build.py
       - run: uv run --locked python work/package.py
       - name: Record checksums
-        run: shasum -a 256 outputs/*.dmg > outputs/SHA256SUMS
+        run: (cd outputs && shasum -a 256 jellyfin-mpv-shim-macos.dmg jellyfin-mpv-shim-macos.zip > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
           name: macos-release-candidate-${{ github.ref_name }}
           path: outputs/*
           if-no-files-found: error
+  trusted-publish-qualification:
+    # Dispatch this workflow against the immutable version tag only after human
+    # qualification. This job validates all gates and signed release assets; it
+    # intentionally does not publish the release or mutate the appcast.
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'iarnvidr/jellyfin-mpv-shim-macos' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-15
+    environment: production-release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.1'
+      - name: Validate immutable tag and qualification evidence
+        run: |
+          uv run --locked --no-sync python scripts/release.py validate-tag '${{ github.ref_name }}'
+          uv run --locked --no-sync python scripts/release.py require-gates
+        env:
+          QUALIFY_GUI_SMOKE: ${{ vars.QUALIFY_GUI_SMOKE }}
+          EVIDENCE_GUI_SMOKE: ${{ vars.EVIDENCE_GUI_SMOKE }}
+          QUALIFY_SPARKLE_UPDATE: ${{ vars.QUALIFY_SPARKLE_UPDATE }}
+          EVIDENCE_SPARKLE_UPDATE: ${{ vars.EVIDENCE_SPARKLE_UPDATE }}
+          QUALIFY_FRESH_INSTALL: ${{ vars.QUALIFY_FRESH_INSTALL }}
+          EVIDENCE_FRESH_INSTALL: ${{ vars.EVIDENCE_FRESH_INSTALL }}
+          QUALIFY_MACOS15: ${{ vars.QUALIFY_MACOS15 }}
+          EVIDENCE_MACOS15: ${{ vars.EVIDENCE_MACOS15 }}
+          QUALIFY_CURRENT_MACOS: ${{ vars.QUALIFY_CURRENT_MACOS }}
+          EVIDENCE_CURRENT_MACOS: ${{ vars.EVIDENCE_CURRENT_MACOS }}
+          QUALIFY_SIGNING_REVIEW: ${{ vars.QUALIFY_SIGNING_REVIEW }}
+          EVIDENCE_SIGNING_REVIEW: ${{ vars.EVIDENCE_SIGNING_REVIEW }}
+          QUALIFY_ARTIFACT_REVIEW: ${{ vars.QUALIFY_ARTIFACT_REVIEW }}
+          EVIDENCE_ARTIFACT_REVIEW: ${{ vars.EVIDENCE_ARTIFACT_REVIEW }}
+          QUALIFY_SOURCE_REVIEW: ${{ vars.QUALIFY_SOURCE_REVIEW }}
+          EVIDENCE_SOURCE_REVIEW: ${{ vars.EVIDENCE_SOURCE_REVIEW }}
   draft:
     needs: build
     if: always() && needs.build.result == 'success'

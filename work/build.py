@@ -6,12 +6,16 @@ LOCK=dict(line.split('=',1) for line in (WORK/'native-dependencies.lock').read_t
 def digest(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 def command(*a): subprocess.run(a,check=True)
 if sys.platform!='darwin' or platform.machine()!='arm64': raise SystemExit('Build on Apple Silicon macOS.')
-# Homebrew resolves the locked versioned formula on the macOS 15 runner; verify its
-# immutable bottle bytes before extraction and capture closure in native audit.
+# Fetch through Homebrew rather than urllib: GHCR requires an anonymous
+# OCI bearer-token challenge, which urllib does not implement. Homebrew's
+# bottle downloader handles that public registry flow. Verify the exact
+# cached artifact against the reviewed lock before installation.
 formula=json.loads(urllib.request.urlopen(LOCK['MPV_SOURCE']).read())
 bottle=formula['bottle']['stable']['files']['arm64_sequoia']
 if bottle['sha256']!=LOCK['MPV_ARCHIVE_SHA256'] or formula['versions']['stable'] not in LOCK['MPV_REVISION']: raise SystemExit('mpv formula provenance changed')
-mpv=WORK/'mpv.bottle.tar.gz'; urllib.request.urlretrieve(bottle['url'],mpv)
+command('brew','fetch','--force','--bottle-tag=arm64_sequoia','--retry','mpv')
+mpv=Path(subprocess.check_output(['brew','--cache','mpv'],text=True).strip())
+if not mpv.is_file(): raise SystemExit(f'mpv bottle missing from Homebrew cache: {mpv}')
 if digest(mpv)!=LOCK['MPV_ARCHIVE_SHA256']: raise SystemExit('mpv bottle hash mismatch')
 command('brew','install','mpv')
 mpvbin=Path(subprocess.check_output(['brew','--prefix','mpv'],text=True).strip())/'bin/mpv'

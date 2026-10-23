@@ -60,7 +60,7 @@ def sign_archive(archive, private_key, sign_update):
     if not Path(sign_update).is_file(): raise ValueError("pinned official sign_update executable required")
     if not Path(archive).is_file(): raise ValueError("update archive missing")
     # Sparkle's official sign_update accepts the key via stdin; never put secret in argv/logs.
-    result=subprocess.run([sign_update, "--ed-key-file", "/dev/stdin", archive], input=private_key, text=True, capture_output=True, check=True)
+    result=subprocess.run([sign_update, "--ed-key-file", "-", archive], input=private_key, text=True, capture_output=True, check=True)
     match=re.search(r"edSignature=\"([^\"]+)\"",result.stdout+result.stderr)
     if not match: raise ValueError("official sign_update returned no EdDSA signature")
     return match.group(1)
