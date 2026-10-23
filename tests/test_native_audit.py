@@ -8,12 +8,8 @@ import native_audit
 
 class NativeAuditParsing(unittest.TestCase):
     def test_otool_load_parser_ignores_image_header_and_extracts_spaced_paths(self):
-        source=Path(native_audit.__file__).read_text()
-        self.assertIn('loads=run(\'otool\',\'-L\',path).splitlines()',source)
         output='''/tmp/Jellyfin MPV Shim.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle:\n\t/Users/runner/work/Jellyfin MPV Shim.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle (compatibility version 1.0.0, current version 2.0.0)\n\t@rpath/Other Framework.framework/Versions/A/Other Framework (compatibility version 1.0.0, current version 1.0.0)\n'''
-        import re
-        lines=output.splitlines()
-        deps=[m.group(1) for line in lines[1:] if (m:=re.match(r'^\s*(.+?)\s+\(compatibility version ',line))]
+        deps=native_audit.parse_otool_dependencies(output)
         self.assertEqual(deps,['/Users/runner/work/Jellyfin MPV Shim.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle','@rpath/Other Framework.framework/Versions/A/Other Framework'])
 
     def test_version_fields_are_not_misread_as_minimum_os(self):

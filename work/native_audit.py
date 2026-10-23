@@ -2,6 +2,18 @@
 from pathlib import Path
 import argparse, json, re, subprocess, sys
 SYSTEM_PREFIXES=('/System/Library/','/usr/lib/')
+OTOOL_DEPENDENCY_RE = re.compile(r'^\s*(.+?)\s+\(compatibility version ')
+LOAD_COMMAND_SPLIT_RE = re.compile(r'(?=\nLoad command \d+)')
+
+
+def parse_otool_dependencies(output):
+    """Return load paths from otool -L output, excluding its image header/ID."""
+    return [match.group(1) for line in output.splitlines()[1:]
+            if (match := OTOOL_DEPENDENCY_RE.match(line))]
+
+
+def load_command_blocks(output):
+    return LOAD_COMMAND_SPLIT_RE.split(output)
 
 def apple(tool):
     p=Path('/usr/bin')/tool
@@ -21,10 +33,7 @@ def audit(app):
         # otool -L starts with the image's own install ID for dylibs, while
         # executables start with a header "path:" line. Neither is a dependency.
         loads=run('otool','-L',path).splitlines()
-        deps=[]
-        for line in loads[1:]:
-            match=re.match(r'^\s*(.+?)\s+\(compatibility version ',line)
-            if match: deps.append(match.group(1))
+        deps=parse_otool_dependencies('\n'.join(loads))
         bad=[d for d in deps if not d.startswith('@rpath/') and not d.startswith('@loader_path/') and not d.startswith('@executable_path/') and not d.startswith(SYSTEM_PREFIXES)]
         if bad: problems.append(f'{rel}: non-relative/non-system linkage: {bad}')
         if 'arm64' not in archs: problems.append(f'{rel}: missing arm64 architecture: {archs}')
@@ -33,7 +42,7 @@ def audit(app):
         # reports the identity as its first entry, which is not a load command.
         install_ids=[]
         load_commands=[]
-        for block in re.split(r'(?=\\nLoad command \\d+)', load):
+        for block in load_command_blocks(load):
             cmd=re.search(r'\\bcmd (LC_[A-Z0-9_]+)', block)
             name=re.search(r'\\bname (.+?) \\(offset \\d+\\)', block)
             if not cmd or not name: continue

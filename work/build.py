@@ -49,7 +49,7 @@ for binary in mpv_dest.rglob('*'):
  if not binary.is_file(): continue
  lines=subprocess.run([otool,'-L',str(binary)],check=True,text=True,capture_output=True).stdout.splitlines()
  for line in lines[1:]:
-  match=__import__('re').match(r'^\\s*(.+?)\\s+\\(compatibility version ',line)
+  match=__import__('re').match(r'^\s*(.+?)\s+\(compatibility version ',line)
   if match and Path(match.group(1)).name=='libMoltenVK.dylib' and match.group(1).startswith('/'):
    subprocess.run([install_name_tool,'-change',match.group(1),'@rpath/libMoltenVK.dylib',str(binary)],check=True)
 for binary in (app/'Contents/Frameworks/Sparkle.framework').rglob('*'):
