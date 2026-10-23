@@ -18,8 +18,19 @@ class NativeAuditParsing(unittest.TestCase):
         commands = [b for b in blocks if 'cmd LC_' in b]
         self.assertTrue(any('cmd LC_LOAD_DYLIB' in b for b in commands))
         self.assertTrue(any('cmd LC_ID_DYLIB' in b for b in commands))
-        self.assertEqual(native_audit.rpaths_from_load_commands(output, '/tmp/App/Contents/Frameworks/x'), [])
+        self.assertEqual(native_audit.rpaths_from_load_commands(output, '/tmp/App/Contents/Frameworks/x'), ['/tmp/App/Contents/Frameworks'])
         self.assertTrue(native_audit.resolve_rpath_dependency('@rpath/Other Framework.framework/Versions/A/Other Framework', ['@loader_path/../Frameworks']))
+
+    def test_rpath_resolution_uses_inherited_loader_runpaths_and_rejects_missing(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            libs=root/'Frameworks'
+            libs.mkdir()
+            (libs/'libNested.dylib').touch()
+            dep='@rpath/libNested.dylib'
+            self.assertTrue(any(Path(c).exists() for c in native_audit.resolve_rpath_dependency(dep,[str(libs)])))
+            self.assertFalse(any(Path(c).exists() for c in native_audit.resolve_rpath_dependency('@rpath/missing.dylib',[str(libs)])))
 
     def test_version_fields_are_not_misread_as_minimum_os(self):
         load = '''Load command 0\n      cmd LC_BUILD_VERSION\n  minos 11.0\n sdk 26.0\nLoad command 1\n      cmd LC_ID_DYLIB\n current version 26.0.0\n compatibility version 1.0.0\n'''
