@@ -104,7 +104,7 @@ static void connectSocket(void) {
                         NSWindow *window = NSApp.mainWindow ?: NSApp.windows.firstObject;
                         [window deminiaturize:nil];
                         [window makeKeyAndOrderFront:nil];
-                        NSDictionary *ack = @{@"request": request, @"visible": @(window.isVisible && !window.isMiniaturized && !NSApp.isHidden)};
+                        NSDictionary *ack = @{@"request": request, @"visible": @((BOOL)(window.isVisible && !window.isMiniaturized && !NSApp.isHidden))};
                         dispatch_async(ioQueue, ^{ writeCommand(@[@"set_property", @"user-data/jellyfin-window-ack", ack]); });
                     }
                 });
