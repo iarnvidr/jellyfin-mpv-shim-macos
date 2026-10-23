@@ -2,12 +2,15 @@
 """Exercise moved packaged macOS executables and collect native GUI evidence."""
 import json, os, pathlib, shutil, subprocess, sys, tempfile, time
 
+TEMP_HOME = None
+
 
 def run(argv, **kw):
     return subprocess.run(argv, capture_output=True, text=True, **kw)
 
 
 def main():
+    global TEMP_HOME
     if sys.platform != 'darwin':
         print('UNSUPPORTED: native smoke requires macOS; host is ' + sys.platform)
         return 0
@@ -15,7 +18,7 @@ def main():
     app=root/'work/dist/Jellyfin Player.app'
     if not app.is_dir(): raise RuntimeError(f'packaged app missing: {app}')
     evidence=root/'outputs/macos-smoke-evidence'; evidence.mkdir(parents=True,exist_ok=True)
-    base=pathlib.Path(tempfile.mkdtemp(prefix='jellyfin smoke ')); home=base/'home'; home.mkdir()
+    base=pathlib.Path(tempfile.mkdtemp(prefix='jellyfin smoke ')); home=base/'home'; home.mkdir(); TEMP_HOME=home
     moved=base/'MOVED app with spaces'/'Jellyfin Player.app'; moved.parent.mkdir(); shutil.copytree(app,moved,symlinks=True)
     env={**os.environ,'HOME':str(home),'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','TMPDIR':str(base),'LANG':'en_US.UTF-8','LC_ALL':'en_US.UTF-8','DYLD_PRINT_LIBRARIES':'1'}
     result={'host':run(['/usr/bin/sw_vers']).stdout,'app':str(moved),'profile':str(home),'tests':[]}
@@ -76,6 +79,25 @@ def main():
     (evidence/'result.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(result,indent=2)); return 0
 
+
+def retain_failure(exc):
+    if sys.platform != 'darwin': return
+    evidence=pathlib.Path(__file__).resolve().parents[1]/'outputs/macos-smoke-evidence'
+    evidence.mkdir(parents=True,exist_ok=True)
+    copied=[]
+    logs=TEMP_HOME/'Library/Logs/Jellyfin MPV Shim' if TEMP_HOME else None
+    if logs and logs.exists():
+        for item in logs.rglob('*'):
+            if item.is_file():
+                dest=evidence/'home-logs'/item.relative_to(logs)
+                dest.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(item,dest); copied.append(str(dest.relative_to(evidence)))
+    (evidence/'result.json').write_text(json.dumps({'passed':False,'error':str(exc),'logs':copied},indent=2)+'\n')
+
+
 if __name__=='__main__':
     try: sys.exit(main())
-    except Exception as exc: print('SMOKE FAILED: '+str(exc),file=sys.stderr); sys.exit(1)
+    except Exception as exc:
+        print('SMOKE FAILED: '+str(exc),file=sys.stderr)
+        try: retain_failure(exc)
+        except Exception as retain_exc: print('EVIDENCE RETENTION FAILED: '+str(retain_exc),file=sys.stderr)
+        sys.exit(1)
