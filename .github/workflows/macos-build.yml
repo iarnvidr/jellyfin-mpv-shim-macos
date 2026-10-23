@@ -33,8 +33,18 @@ jobs:
         run: uv run --locked python work/build.py
       - name: Package and verify
         run: uv run --locked python work/package.py
+      # Upload exactly the outputs from this single build/package invocation;
+      # do not rebuild per artifact or silently omit audit/source evidence.
       - uses: actions/upload-artifact@v4
         with:
-          name: Jellyfin-MPV-Shim-macOS-Apple-Silicon
-          path: outputs/*.dmg
+          name: Jellyfin-MPV-Shim-macOS-Apple-Silicon-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            outputs/*.dmg
+            outputs/*-Apple-Silicon.zip
+            outputs/*-Source.zip
+            outputs/*-Build-Manifest.json
+            outputs/*-Native-Audit.json
+            outputs/*-Bundle-Inventory.json
+            outputs/SHA256SUMS
           if-no-files-found: error
+          compression-level: 0

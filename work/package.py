@@ -28,13 +28,23 @@ with zipfile.ZipFile(source,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
 run('codesign','--verify','--deep','--strict',str(app)); run('hdiutil','verify',str(dmg))
 manifest=app/'Contents/Resources/build-manifest.json'
 if not manifest.is_file(): raise SystemExit('Missing in-app build manifest')
+# Emit auditable native-binary inventory from the exact signed app. The
+# architecture/deployment/load-closure audit is retained as a release artifact.
+audit=OUT/f'Jellyfin-MPV-Shim-{VERSION}-Native-Audit.json'
+subprocess.run([sys.executable,str(WORK/'native_audit.py'),str(app)],check=True,stdout=audit.open('w'),env={**os.environ,'PATH':'/usr/bin:/bin:/usr/sbin:/sbin'})
+# Include actual vendor notices/source pointers in the source ZIP, not claims of
+# completeness. Source inputs are exact pinned checkouts.
 # Hash the finalized signed app tree as an inventory alongside artifacts.
 bundle_inventory=OUT/f'Jellyfin-MPV-Shim-{VERSION}-Bundle-Inventory.json'
 inventory=[]
 for p in sorted(app.rglob('*')):
  if p.is_symlink(): inventory.append({'path':str(p.relative_to(app)),'symlink':str(p.readlink())})
  elif p.is_file(): inventory.append({'path':str(p.relative_to(app)),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()})
-bundle_inventory.write_text(json.dumps(inventory,indent=2)+'\\n')
-files=[dmg,archive,source,manifest,bundle_inventory]
+bundle_inventory.write_text(json.dumps(inventory,indent=2)+'\n')
+# Stable, explicit names make the CI artifact glob fail closed and keep manifest
+# distinct from the copy embedded in the app bundle.
+manifest_copy=OUT/f'Jellyfin-MPV-Shim-{VERSION}-Build-Manifest.json'
+shutil.copy2(manifest,manifest_copy)
+files=[dmg,archive,source,manifest_copy,bundle_inventory,audit]
 (OUT/'SHA256SUMS').write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
-print(json.dumps({'dmg':str(dmg),'update_archive':str(archive),'source':str(source),'checksums':str(OUT/'SHA256SUMS')}))
+print(json.dumps({'dmg':str(dmg),'update_archive':str(archive),'source':str(source),'manifest':str(manifest_copy),'native_audit':str(audit),'inventory':str(bundle_inventory),'checksums':str(OUT/'SHA256SUMS')}))

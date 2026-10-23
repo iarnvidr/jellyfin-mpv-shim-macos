@@ -153,7 +153,11 @@ Implement:
   with Sparkle's tool, not an improvised crypto format.
 - Include complete applicable notices, build provenance, and corresponding
   source material required for the actual bundled components. The current
-  upstream-only license copy is insufficient.
+  upstream-only license copy is insufficient. mpv v0.41.0's verified Mac archive
+  contains `mpv.app`, `libMoltenVK.dylib`, Vulkan ICD metadata and 72 bundled
+  dylibs, but no notices or source. Its exact build revision/configuration and
+  corresponding-source availability remain unresolved; do not ship until those
+  are obtained and audited.
 
 Acceptance:
 
@@ -204,7 +208,7 @@ Acceptance:
 
 Release checklist:
 
-- [ ] Locked uv build and upstream integration checks pass from clean checkout. **Pending; not claimed passed.**
+- [ ] Locked uv build and upstream integration checks pass from clean checkout. **Automated CI run 39966871763 at `fc64e673` is reported green; this is CI-only evidence, not GUI qualification.**
 - [ ] Fresh install on a Mac with no developer tooling passes.
 - [ ] macOS 15 and the user's current macOS receive an interactive smoke test.
 - [ ] 0.1.0 manual upgrade retains settings and ignores all legacy runtime state.
@@ -232,8 +236,13 @@ interactive test results and unresolved limitations alongside the release.
 6. `release: qualify and document 0.2.0`
 
 Implementation can proceed through build and automated checks autonomously.
-Actual GUI/first-open/update testing needs a usable Mac session; record that as
-outstanding evidence when unavailable, rather than inferring success from CI.
+Run 39966871763 at commit `fc64e673` is reported green; it is the immutable
+candidate build. The workflow uploads all outputs from its single packaging
+invocation (DMG, update ZIP, source ZIP, manifest, native audit, bundle inventory,
+checksums). Do not rebuild to create alternate assets. Actual GUI/first-open/
+update testing needs a usable Mac session; record that as outstanding evidence
+when unavailable, rather than inferring success from CI. No GUI test, signing key
+use, production publication, or appcast change is claimed.
 
 ## References
 
