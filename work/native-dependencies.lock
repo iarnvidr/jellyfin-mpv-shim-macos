@@ -1,0 +1,9 @@
+# Native distribution inputs. Values are deliberately explicit; update only with review.
+# SHA-256 verified from Sparkle's official 2.10.0 release tarball.
+SPARKLE_VERSION=2.10.0
+SPARKLE_URL=https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz
+SPARKLE_SHA256=c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c
+# Official mpv-player v0.41.0 release; macOS 15 arm64 archive, verified from downloaded bytes.
+MPV_VERSION=0.41.0
+MPV_URL=https://github.com/mpv-player/mpv/releases/download/v0.41.0/mpv-v0.41.0-macos-15-arm.zip
+MPV_SHA256=489cf6a54f57c54f86ad8d7cedaf5bb26848770d58dc059021214e2f689ee799

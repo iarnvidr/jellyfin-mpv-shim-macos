@@ -1,0 +1,161 @@
+name: Prepare macOS release
+# No Homebrew or alternative system package manager is installed or invoked.
+# Native inputs must be verified immutable assets or controlled source builds.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful CI run ID whose exact artifact should be preview-published
+        required: true
+        type: string
+      preview_tag:
+        description: Conventional stable version tag matching VERSION (for example v0.2.0)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  build:
+    if: github.repository == 'iarnvidr/jellyfin-mpv-shim-macos' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.ref }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.1'
+          enable-cache: true
+      - name: Verify immutable version identity
+        run: uv run --locked --no-sync python scripts/release.py validate-tag '${{ github.ref_name }}'
+      - run: test "$(uname -m)" = arm64
+      - run: uv python install
+      - run: uv run --locked --no-sync python scripts/prepare.py
+      - run: uv sync --locked --all-groups
+      - run: git diff --exit-code -- uv.lock
+      - run: uv run --locked python scripts/check.py
+      - run: uv run --locked python work/build.py
+      - run: uv run --locked python work/package.py
+      - name: Record checksums
+        run: (cd outputs && shasum -a 256 *.dmg *-Apple-Silicon.zip *-Source.zip > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jellyfin-Player-release-candidate-${{ github.ref_name }}
+          path: outputs/*
+          if-no-files-found: error
+  trusted-publish-qualification:
+    # Preview transport signs the exact successful CI run artifact; it never updates production feed.
+    if: false # Production feed transport is intentionally unavailable in this preview workflow.
+    runs-on: macos-15
+    environment: production-release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.1'
+      - name: Validate immutable tag and qualification evidence
+        run: |
+          uv run --locked --no-sync python scripts/release.py validate-tag '${{ github.ref_name }}'
+          uv run --locked --no-sync python scripts/release.py require-gates
+        env:
+          QUALIFY_GUI_SMOKE: ${{ vars.QUALIFY_GUI_SMOKE }}
+          EVIDENCE_GUI_SMOKE: ${{ vars.EVIDENCE_GUI_SMOKE }}
+          QUALIFY_SPARKLE_UPDATE: ${{ vars.QUALIFY_SPARKLE_UPDATE }}
+          EVIDENCE_SPARKLE_UPDATE: ${{ vars.EVIDENCE_SPARKLE_UPDATE }}
+          QUALIFY_FRESH_INSTALL: ${{ vars.QUALIFY_FRESH_INSTALL }}
+          EVIDENCE_FRESH_INSTALL: ${{ vars.EVIDENCE_FRESH_INSTALL }}
+          QUALIFY_MACOS15: ${{ vars.QUALIFY_MACOS15 }}
+          EVIDENCE_MACOS15: ${{ vars.EVIDENCE_MACOS15 }}
+          QUALIFY_CURRENT_MACOS: ${{ vars.QUALIFY_CURRENT_MACOS }}
+          EVIDENCE_CURRENT_MACOS: ${{ vars.EVIDENCE_CURRENT_MACOS }}
+          QUALIFY_SIGNING_REVIEW: ${{ vars.QUALIFY_SIGNING_REVIEW }}
+          EVIDENCE_SIGNING_REVIEW: ${{ vars.EVIDENCE_SIGNING_REVIEW }}
+          QUALIFY_ARTIFACT_REVIEW: ${{ vars.QUALIFY_ARTIFACT_REVIEW }}
+          EVIDENCE_ARTIFACT_REVIEW: ${{ vars.EVIDENCE_ARTIFACT_REVIEW }}
+          QUALIFY_SOURCE_REVIEW: ${{ vars.QUALIFY_SOURCE_REVIEW }}
+          EVIDENCE_SOURCE_REVIEW: ${{ vars.EVIDENCE_SOURCE_REVIEW }}
+  preview-publish:
+    needs: []
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'iarnvidr/jellyfin-mpv-shim-macos'
+    runs-on: macos-15
+    environment: preview-release
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate successful trusted run before accessing signing secret
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          TRUSTED_SHA: ${{ github.sha }}
+        run: |
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" > run.json
+          python3 scripts/release.py validate-run run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts" > artifacts.json
+          python3 -c 'import json,sys; sys.path.insert(0,"scripts"); import release; print(release.find_run_artifact(json.load(open("artifacts.json")),sys.argv[1]))' "Jellyfin-Player-release-candidate-${{ inputs.preview_tag }}" > artifact-id.txt
+      - name: Download artifact belonging to validated run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/$(cat artifact-id.txt)/zip" > artifact.zip && mkdir artifacts && unzip -q artifact.zip -d artifacts
+      - name: Verify artifact and derive preview metadata
+        run: |
+          python3 scripts/release.py verify-artifacts artifacts '${{ inputs.preview_tag }}' > verified.json
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Install verified Sparkle signer
+        run: |
+          curl -fsSL https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz -o /tmp/sparkle.tar.xz
+          echo 'c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c  /tmp/sparkle.tar.xz' | shasum -a 256 -c -
+          mkdir /tmp/sparkle && tar -xf /tmp/sparkle.tar.xz -C /tmp/sparkle
+          find /tmp/sparkle -name sign_update -type f -exec chmod +x {} \;
+      - name: Sign update archive and create draft preview
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ARCHIVE="artifacts/Jellyfin-Player-$(cat VERSION)-Apple-Silicon.zip"
+          python3 scripts/release.py sign "$ARCHIVE" --sign-update "$(find /tmp/sparkle -name sign_update -type f | head -1)" > signature.json
+          python3 -c 'import json,sys; sys.path.insert(0,"scripts"); import release; release.write_signature_assets("artifacts",json.load(open("signature.json")),sys.argv[1])' "$(basename "$ARCHIVE")"
+          gh release create '${{ inputs.preview_tag }}' artifacts/* --draft --prerelease --verify-tag --title '${{ inputs.preview_tag }}' --notes 'Signed preview from CI run ${{ inputs.run_id }}; operator verification required before publishing. No production feed update.'
+  draft:
+    needs: build
+    if: github.repository == 'iarnvidr/jellyfin-mpv-shim-macos' && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Jellyfin-Player-release-candidate-${{ github.ref_name }}
+          path: artifacts
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Validate tag and refuse replacement
+        run: |
+          python3 scripts/release.py validate-tag '${{ github.ref_name }}'
+          if gh release view '${{ github.ref_name }}' >/dev/null 2>&1; then
+            echo 'release already exists; refusing overwrite'
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Create draft with immutable candidate artifacts
+        run: gh release create '${{ github.ref_name }}' artifacts/* --draft --verify-tag --title '${{ github.ref_name }}' --notes 'Automated macOS Apple Silicon candidate. Draft only; production publication requires every qualification gate.'
+        env:
+          GH_TOKEN: ${{ github.token }}
+      # Production publication is deliberately a distinct trusted dispatch. This
+      # job only creates a draft; never expose signing/feed credentials here.

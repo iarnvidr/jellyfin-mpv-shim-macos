@@ -85,8 +85,6 @@ def apply(resources, package):
     def render(self):
         before = self.build_errors
         result = original_render(self)
-        if self.build_errors == before and getattr(self, '_nodes', None):
-            mac_update.mark_healthy()
         return result
     renderer_app.MpvtkApp._render = render
 
@@ -129,7 +127,7 @@ def apply(resources, package):
     def form(self, route, size):
         content = original_form(self, route, size)
         if route.get('_tab', 'general') == 'general':
-            bar = Row([Text('Jellyfin MPV Shim ' + mac_update.current_version()),
+            bar = Row([Text('Jellyfin Player ' + mac_update.current_version()),
                        Button('Check for Updates…', id='mac-check-updates',
                               on_click=mac_update.show_updater)], gap=16, pad=12, h=64)
             return Column([bar, content], flex=1, align='stretch')
@@ -149,13 +147,6 @@ def apply(resources, package):
     window_chrome.banner = banner
     from jellyfin_mpv_shim.update_check import UpdateChecker
     def check_updates(self):
-        try:
-            result = mac_update.check()
-            if result['status'] == 'available':
-                self.new_version = result['latest']
-                return True
-        except Exception:
-            pass
         return False
     UpdateChecker._check_updates = check_updates
     UpdateChecker.open = lambda self: mac_update.show_updater()

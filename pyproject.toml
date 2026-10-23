@@ -1,0 +1,15 @@
+[project]
+name = "jellyfin-mpv-shim-macos"
+version = "0.2.0"
+description = "macOS wrapper build environment for Jellyfin MPV Shim"
+requires-python = "==3.13.*"
+dependencies = ["jellyfin-mpv-shim"]
+
+[dependency-groups]
+build = ["pyinstaller==6.22.3"]
+
+[tool.uv]
+required-version = "==0.13.1"
+
+[tool.uv.sources]
+jellyfin-mpv-shim = { path = "work/source", editable = false }
