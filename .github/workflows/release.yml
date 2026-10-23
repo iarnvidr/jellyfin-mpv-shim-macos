@@ -33,10 +33,10 @@ jobs:
       - run: uv run --locked python work/build.py
       - run: uv run --locked python work/package.py
       - name: Record checksums
-        run: (cd outputs && shasum -a 256 jellyfin-mpv-shim-macos.dmg jellyfin-mpv-shim-macos.zip > SHA256SUMS)
+        run: (cd outputs && shasum -a 256 *.dmg *-Apple-Silicon.zip *-Source.zip > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-release-candidate-${{ github.ref_name }}
+          name: Jellyfin-Player-release-candidate-${{ github.ref_name }}
           path: outputs/*
           if-no-files-found: error
   trusted-publish-qualification:
@@ -85,7 +85,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: macos-release-candidate-${{ github.ref_name }}
+          name: Jellyfin-Player-release-candidate-${{ github.ref_name }}
           path: artifacts
       - uses: actions/checkout@v4
         with:

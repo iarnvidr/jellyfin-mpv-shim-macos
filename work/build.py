@@ -1,7 +1,7 @@
 from pathlib import Path
 import hashlib, importlib.metadata, os, platform, plistlib, shutil, subprocess, sys, urllib.request
 ROOT=Path(__file__).resolve().parent.parent; WORK=ROOT/'work'; OUT=ROOT/'outputs'
-NAME='Jellyfin MPV Shim'; VERSION=(ROOT/'VERSION').read_text().strip()
+NAME='Jellyfin Player'; VERSION=(ROOT/'VERSION').read_text().strip()
 LOCK=dict(line.split('=',1) for line in (WORK/'native-dependencies.lock').read_text().splitlines() if line and not line.startswith('#'))
 def digest(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 def command(*a): subprocess.run(a,check=True,env={**os.environ,'PATH':'/usr/bin:/bin:/usr/sbin:/sbin'})
@@ -33,6 +33,14 @@ app=WORK/'dist'/(NAME+'.app'); support=app/'Contents/Resources/mac_support'; sup
 # transitive dylibs, MoltenVK, Vulkan ICD resources and config next to the binary.
 mpv_dest=app/'Contents/Resources/mpv.app'
 shutil.copytree(mpvapp,mpv_dest,symlinks=True,ignore=shutil.ignore_patterns('_CodeSignature','._*','.gitkeep'))
+# Brand nested app metadata using the bundled upstream Jellyfin icon.
+player_info_path=mpv_dest/'Contents/Info.plist'
+with player_info_path.open('rb') as f: player_info=plistlib.load(f)
+player_info.update(CFBundleName='Jellyfin Player',CFBundleDisplayName='Jellyfin Player',CFBundleIdentifier='org.jellyfin.mpvshim.player',CFBundleExecutable='mpv',CFBundleIconFile='jellyfin.icns')
+player_info.pop('CFBundleIconName',None)
+for key in ('CFBundleDocumentTypes','CFBundleURLTypes','UTImportedTypeDeclarations'): player_info.pop(key,None)
+with player_info_path.open('wb') as f: plistlib.dump(player_info,f)
+shutil.copy2(WORK/'source/jellyfin.icns',mpv_dest/'Contents/Resources/jellyfin.icns')
 # PyInstaller's standalone copy is redundant; replace it with a launcher for the
 # verified nested application binary so runtime uses its own app resources and rpaths.
 standalone=app/'Contents/Resources/mpv'
@@ -69,7 +77,7 @@ for n in ['launch.py','mac_update.py','local_compat.py','runtime_update.py','man
  if (WORK/n).exists(): shutil.copy2(WORK/n,support/n)
 shutil.copy2(WORK/'source/jellyfin.icns',support/'jellyfin.icns'); (app/'Contents/Frameworks/mac_support').symlink_to('../Resources/mac_support')
 helper=app/'Contents/Helpers/Mac Updater.app/Contents'; helper.joinpath('MacOS').mkdir(parents=True,exist_ok=True); shutil.copy2(WORK/'Mac Updater',helper/'MacOS/Mac Updater')
-with helper.joinpath('Info.plist').open('wb') as f: plistlib.dump({'CFBundleExecutable':'Mac Updater','CFBundleIdentifier':'org.jellyfin.mpvshim.local.updater','CFBundleName':'Jellyfin Updates','CFBundlePackageType':'APPL','CFBundleVersion':'1','LSUIElement':True},f)
+with helper.joinpath('Info.plist').open('wb') as f: plistlib.dump({'CFBundleExecutable':'Mac Updater','CFBundleIdentifier':'org.jellyfin.mpvshim.local.updater','CFBundleName':'Jellyfin Player Updates','CFBundlePackageType':'APPL','CFBundleVersion':'1','LSUIElement':True},f)
 shutil.copytree(WORK/'Sparkle.framework',app/'Contents/Frameworks/Sparkle.framework',symlinks=True)
 notices=app/'Contents/Resources/Licenses'; notices.mkdir(exist_ok=True)
 for c in WORK.glob('*Sparkle*'):
@@ -77,7 +85,7 @@ for c in WORK.glob('*Sparkle*'):
 shutil.copy2(WORK/'source/LICENSE.md',notices/'Jellyfin MPV Shim.txt')
 info_path=app/'Contents/Info.plist'
 with info_path.open('rb') as f: info=plistlib.load(f)
-info.update(CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION,CFBundleDisplayName=NAME,LSMinimumSystemVersion='15.0',NSHighResolutionCapable=True,SUFeedURL='https://raw.githubusercontent.com/iarnvidr/jellyfin-mpv-shim-macos/updates/appcast.xml',SUPublicEDKey=os.environ.get('SPARKLE_PUBLIC_ED_KEY',''))
+info.update(CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION,CFBundleName='Jellyfin Player',CFBundleDisplayName='Jellyfin Player',CFBundleExecutable='Jellyfin Player',LSMinimumSystemVersion='15.0',NSHighResolutionCapable=True,SUFeedURL='https://raw.githubusercontent.com/iarnvidr/jellyfin-mpv-shim-macos/updates/appcast.xml',SUPublicEDKey=os.environ.get('SPARKLE_PUBLIC_ED_KEY',''))
 with info_path.open('wb') as f: plistlib.dump(info,f)
 # Provenance and inventory are generated before signing; artifact hash is added by packaging.
 manifest={'schema':1,'version':VERSION,'python':platform.python_version(),'platform':platform.platform(),'mpv':{'version':LOCK['MPV_VERSION'],'url':LOCK['MPV_URL'],'sha256':LOCK['MPV_SHA256'],'executable':'Contents/Resources/mpv.app/Contents/MacOS/mpv'},'sparkle':{'version':LOCK['SPARKLE_VERSION'],'url':LOCK['SPARKLE_URL'],'sha256':LOCK['SPARKLE_SHA256']},'inputs':{'python_lock_sha256':digest(ROOT/'uv.lock'),'native_lock_sha256':digest(WORK/'native-dependencies.lock')}}

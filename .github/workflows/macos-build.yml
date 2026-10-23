@@ -37,7 +37,7 @@ jobs:
       # do not rebuild per artifact or silently omit audit/source evidence.
       - uses: actions/upload-artifact@v4
         with:
-          name: Jellyfin-MPV-Shim-macOS-Apple-Silicon-${{ github.run_id }}-${{ github.run_attempt }}
+          name: Jellyfin-Player-macOS-Apple-Silicon-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             outputs/*.dmg
             outputs/*-Apple-Silicon.zip

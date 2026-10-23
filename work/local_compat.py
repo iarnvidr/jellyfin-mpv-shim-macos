@@ -127,7 +127,7 @@ def apply(resources, package):
     def form(self, route, size):
         content = original_form(self, route, size)
         if route.get('_tab', 'general') == 'general':
-            bar = Row([Text('Jellyfin MPV Shim ' + mac_update.current_version()),
+            bar = Row([Text('Jellyfin Player ' + mac_update.current_version()),
                        Button('Check for Updates…', id='mac-check-updates',
                               on_click=mac_update.show_updater)], gap=16, pad=12, h=64)
             return Column([bar, content], flex=1, align='stretch')

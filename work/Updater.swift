@@ -18,7 +18,7 @@ final class Updater: NSObject, NSApplicationDelegate {
         guard appBundleURL.pathExtension == "app",
               let hostBundle = Bundle(url: appBundleURL),
               hostBundle.bundleIdentifier == "org.jellyfin.mpvshim.local" else {
-            showError("The main Jellyfin MPV Shim application could not be located.")
+            showError("The main Jellyfin Player application could not be located.")
             return
         }
         // SPUUpdater is explicitly created for the containing app's bundle.

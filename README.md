@@ -1,8 +1,8 @@
-# Jellyfin MPV Shim for macOS
+# Jellyfin Player for macOS
 
 Unofficial Apple Silicon macOS packaging and integration for [Jellyfin MPV Shim](https://github.com/jellyfin/jellyfin-mpv-shim). The wrapper adds Finder launching, Mac window/trackpad integration, and (planned) whole-app updates while keeping the upstream client separate.
 
-**0.2.0 preparation; not released or qualified.** The version is a preparation identifier, not a release claim. Automated build/runtime changes are in progress. No release gates are claimed passed. See the [shipping plan](docs/PLAN-0.2.0.md), [qualification ledger](docs/RELEASE-QUALIFICATION-0.2.0.md), [installation/recovery guide](docs/INSTALL-AND-RECOVERY.md), and [third-party notices policy](THIRD_PARTY.md). Historical prototype findings remain in the [original handoff](docs/REPOSITORY-HANDOFF.md), which is retained unchanged.
+**Version 0.2.0 is not yet released or qualified.** See the [installation and recovery guide](docs/INSTALL-AND-RECOVERY.md), [mpv provenance notes](docs/MPV-PROVENANCE-0.2.0.md), and [third-party notices policy](THIRD_PARTY.md).
 
 ## User-facing status
 
@@ -22,7 +22,7 @@ uv run --locked python work/build.py
 uv run --locked python work/package.py
 ```
 
-These commands are preparation instructions, not evidence that a release build or packaged app has passed qualification. Maintainer build/dev/release/runtime flows must not install or rely on Homebrew or any alternative system package manager. Use pinned uv/Python and the Xcode-provided SDK/compiler tools only, plus native assets whose provenance and hashes are verified or dependencies built from controlled source. Do not accept ambient `/opt/homebrew` or other package-manager paths as inputs. See the plan for unresolved native mpv provenance and artifact audits. The manual macOS workflow is development automation, not release qualification.
+These commands are preparation instructions, not evidence that a release build or packaged app has passed qualification. Maintainer build/dev/release/runtime flows must not install or rely on Homebrew or any alternative system package manager. Use pinned uv/Python and the Xcode-provided SDK/compiler tools only, plus native assets whose provenance and hashes are verified or dependencies built from controlled source. Do not accept ambient `/opt/homebrew` or other package-manager paths as inputs. See the provenance notes for the unresolved native mpv provenance and artifact-audit requirements. The manual macOS workflow is development automation, not release qualification.
 
 ## Source and versioning
 
