@@ -4,6 +4,9 @@ import Network
 import Darwin
 
 final class AppHost: NSObject, NSApplicationDelegate {
+    private func log(_ message: String) {
+        FileHandle.standardError.write(Data(("AppHost \(Date().timeIntervalSince1970): \(message)\n").utf8))
+    }
     private var core: Process?
     private var stopping = false
     private var signals: [DispatchSourceSignal] = []
@@ -27,9 +30,11 @@ final class AppHost: NSObject, NSApplicationDelegate {
         environment["JELLYFIN_PLAYER_HOSTED"] = "1"
         environment["JELLYFIN_PLAYER_HOST_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         process.environment = environment
-        process.terminationHandler = { [weak self] _ in
+        process.terminationHandler = { [weak self] process in
+            self?.log("Core exited status=\(process.terminationStatus)")
             DispatchQueue.main.async {
                 guard let self = self else { return }
+                self.log("Core exit on main queue; stopping=\(self.stopping)")
                 if self.stopping { NSApp.reply(toApplicationShouldTerminate: true) }
                 else { NSApp.terminate(nil) }
             }
@@ -58,6 +63,7 @@ final class AppHost: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        log("Quit requested; Core running=\(core?.isRunning ?? false), stopping=\(stopping)")
         guard let core = core, core.isRunning else { return .terminateNow }
         if !stopping {
             stopping = true

@@ -33,12 +33,18 @@ def run(argv, **kw):
     return subprocess.run(argv, capture_output=True, text=True, **kw)
 
 
-def stop_process(process):
+def stop_process(process, evidence=None):
     if process.poll() is None:
         process.terminate()
         try:
             process.wait(timeout=15)
         except subprocess.TimeoutExpired:
+            if evidence:
+                snapshot=run(['/bin/ps','-axo','pid=,ppid=,stat=,command='],timeout=5)
+                (evidence/'shutdown-processes.txt').write_text(snapshot.stdout)
+                run(['/usr/bin/sample',str(process.pid),'1','-file',str(evidence/'shutdown-host.txt')],timeout=10)
+                for child in run(['/usr/bin/pgrep','-P',str(process.pid)],timeout=5).stdout.split():
+                    run(['/usr/bin/sample',child,'1','-file',str(evidence/f'shutdown-child-{child}.txt')],timeout=10)
             process.kill()
             process.wait(timeout=10)
 
@@ -374,7 +380,7 @@ def main():
         result['tests'].append({'name':'Vulkan uses bundled MoltenVK only','passed':True})
         if options.upgrade_check:
             result['tests'].append(verify_same_app_restore(exe,config,env,state['pid'],probe_bin,proc.pid,evidence))
-        stop_process(proc)
+        stop_process(proc,evidence)
         if proc.returncode != 0: raise RuntimeError(f'main app did not shut down cleanly on SIGTERM: {proc.returncode}')
         result['tests'].append({'name':'main app handles SIGTERM and exits cleanly','returncode':proc.returncode,'passed':True})
         if options.upgrade_check:
