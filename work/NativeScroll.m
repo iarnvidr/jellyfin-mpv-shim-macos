@@ -6,6 +6,7 @@
 #import <unistd.h>
 #import <stdatomic.h>
 #import <string.h>
+#import <signal.h>
 
 static dispatch_queue_t ioQueue;
 static dispatch_source_t reader;
@@ -17,6 +18,11 @@ static NSMutableData *inputBuffer;
 static int gestureAxis = 0;
 static NSTimeInterval lastScrollTime = 0;
 static NSDictionary *branding;
+
+static void notifyAppHost(int signalNumber) {
+    int host = [NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_HOST_PID"] intValue];
+    if (host > 1) kill(host, signalNumber);
+}
 
 static NSData *iconPixels(NSImage *image) {
     if (!image) return nil;
@@ -167,6 +173,10 @@ static void connectSocket(void) {
 
 __attribute__((constructor)) static void installNativeScrolling(void) {
     @autoreleasepool {
+        [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidHideNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { notifyAppHost(SIGUSR1); }];
+        [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidMiniaturizeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { notifyAppHost(SIGUSR1); }];
+        [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidUnhideNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { notifyAppHost(SIGUSR2); }];
+        [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidDeminiaturizeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { notifyAppHost(SIGUSR2); }];
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidFinishLaunchingNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { applyPlayerBranding(); }];
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { applyPlayerBranding(); }];
         [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidBecomeKeyNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {

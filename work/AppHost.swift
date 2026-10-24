@@ -14,6 +14,7 @@ final class AppHost: NSObject, NSApplicationDelegate {
         let application = NSMenuItem()
         let commands = NSMenu()
         commands.addItem(withTitle: "Quit Jellyfin Player", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        commands.addItem(withTitle: "Hide Jellyfin Player", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         application.submenu = commands
         menu.addItem(application)
         NSApp.mainMenu = menu
@@ -24,6 +25,7 @@ final class AppHost: NSObject, NSApplicationDelegate {
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
         environment["JELLYFIN_PLAYER_HOSTED"] = "1"
+        environment["JELLYFIN_PLAYER_HOST_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         process.environment = environment
         process.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async {
@@ -42,10 +44,14 @@ final class AppHost: NSObject, NSApplicationDelegate {
             alert.runModal()
             NSApp.terminate(nil)
         }
-        for number in [SIGTERM, SIGINT] {
+        for number in [SIGTERM, SIGINT, SIGUSR1, SIGUSR2] {
             signal(number, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
-            source.setEventHandler { NSApp.terminate(nil) }
+            source.setEventHandler {
+                if number == SIGUSR1 { NSApp.hide(nil) }
+                else if number == SIGUSR2 { NSApp.unhideWithoutActivation() }
+                else { NSApp.terminate(nil) }
+            }
             source.resume()
             signals.append(source)
         }
@@ -61,16 +67,28 @@ final class AppHost: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        NSApp.unhide(nil)
         showPlayer()
         return false
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        showPlayer()
+        // Hiding the child can briefly activate the host. Let its hide signal
+        // arrive before deciding whether this was an intentional app switch.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            if NSApp.isActive && !NSApp.isHidden { self?.showPlayer() }
+        }
+    }
+
+    func applicationDidHide(_ notification: Notification) {
+        let player = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/mpv.app").resolvingSymlinksInPath()
+        for application in NSRunningApplication.runningApplications(withBundleIdentifier: "org.jellyfin.mpvshim.player") {
+            if application.bundleURL?.resolvingSymlinksInPath() == player { application.hide() }
+        }
     }
 
     private func showPlayer() {
-        guard !stopping, let core = core, core.isRunning else { return }
+        guard !NSApp.isHidden, !stopping, let core = core, core.isRunning else { return }
         var profile = URL(fileURLWithPath: "/Users/\(NSUserName())/Library/Application Support/jellyfin-mpv-shim")
         if let index = arguments.firstIndex(of: "--config"), index + 1 < arguments.count {
             profile = URL(fileURLWithPath: arguments[index + 1])

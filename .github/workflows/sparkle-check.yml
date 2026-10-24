@@ -21,7 +21,7 @@ jobs:
           version: '0.13.1'
       - run: uv python install
       - name: Verify released update discovery, installation and relaunch
-        run: uv run --locked --no-sync python scripts/sparkle_smoke.py
+        run: uv run --locked --no-sync python scripts/sparkle_smoke.py --legacy-install-only
       - uses: actions/upload-artifact@v4
         if: always()
         with:

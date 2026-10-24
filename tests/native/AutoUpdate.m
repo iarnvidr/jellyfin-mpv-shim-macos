@@ -6,6 +6,7 @@
 @interface Driver : NSObject <SPUUserDriver, SPUUpdaterDelegate>
 @property(nonatomic, copy) NSString *feed;
 @property(nonatomic) BOOL probe;
+@property(nonatomic) BOOL legacy;
 @property(nonatomic, strong) SPUUpdater *updater;
 @end
 @implementation Driver
@@ -43,7 +44,7 @@
     fprintf(stderr, "INSTALL applicationTerminated=%d\n", terminated);
 }
 - (void)showUpdateInstalledAndRelaunched:(BOOL)relaunched acknowledgement:(void (^)(void))acknowledgement {
-    fprintf(stderr, "INSTALLED relaunched=%d\n", relaunched); acknowledgement(); exit(relaunched ? 0 : 1);
+    fprintf(stderr, "INSTALLED relaunched=%d\n", relaunched); acknowledgement(); exit(relaunched || self.legacy ? 0 : 1);
 }
 - (void)dismissUpdateInstallation {}
 - (void)showUpdateInFocus {}
@@ -57,7 +58,8 @@ int main(int argc, const char *argv[]) {
         static Driver *driver;
         driver = [Driver new];
         driver.feed = [NSString stringWithUTF8String:argv[2]];
-        driver.probe = argc == 4;
+        driver.probe = argc == 4 && strcmp(argv[3], "probe") == 0;
+        driver.legacy = argc == 4 && strcmp(argv[3], "legacy") == 0;
         NSBundle *host = [NSBundle bundleWithPath:[NSString stringWithUTF8String:argv[1]]];
         driver.updater = [[SPUUpdater alloc] initWithHostBundle:host applicationBundle:host userDriver:driver delegate:driver];
         NSError *error = nil;

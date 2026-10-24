@@ -19,7 +19,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'work'))
 import release
-from bundle_signing import verify_bundle
+from bundle_signing import sign_bundle, verify_bundle
 from macos_smoke import PROBE_SOURCE, visible_descendant
 
 
@@ -61,17 +61,36 @@ def wait_window(probe, pid, timeout=45):
     raise RuntimeError(f'No visible app window for launcher PID {pid}')
 
 
+def wait_exit(pid, timeout=20):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(.1)
+    raise RuntimeError(f'Process {pid} did not quit cleanly')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--from-version', default='0.2.1')
     parser.add_argument('--to-version', default='0.2.2')
+    parser.add_argument('--legacy-install-only', action='store_true')
+    parser.add_argument('--current-host-fixture', action='store_true')
     args = parser.parse_args()
+    args.to_version = args.to_version.removeprefix('v')
+    if args.current_host_fixture:
+        args.from_version = args.to_version
     if sys.platform != 'darwin' or os.environ.get('GITHUB_ACTIONS') != 'true':
         raise RuntimeError('Run this test only on an isolated macOS GitHub runner')
-    evidence = ROOT / 'outputs/sparkle-smoke-evidence'
+    mode = 'current-host' if args.current_host_fixture else 'legacy'
+    evidence = ROOT / 'outputs/sparkle-smoke-evidence' / mode
     evidence.mkdir(parents=True, exist_ok=True)
-    result = {'from': args.from_version, 'to': args.to_version, 'passed': False}
+    result = {'from': args.from_version, 'to': args.to_version, 'passed': False,
+              'mode': mode, 'manual_reopen': args.legacy_install_only}
     old_pid = None
+    created_profile = False
     server = None
     try:
         with tempfile.TemporaryDirectory(prefix='jellyfin-sparkle-') as directory:
@@ -86,6 +105,16 @@ def main():
             installed = temporary / 'Applications'; installed.mkdir()
             command('/usr/bin/ditto', '-x', '-k', old_archive, installed)
             app = installed / 'Jellyfin Player.app'
+            if args.current_host_fixture:
+                # Only the old test fixture is changed, never the target ZIP.
+                # Exercise the current host as an older version without making
+                # artificial public releases just for an updater test.
+                info_path = app / 'Contents/Info.plist'
+                info = plistlib.loads(info_path.read_bytes())
+                info.update(CFBundleVersion='0.0.0', CFBundleShortVersionString='0.0.0')
+                info_path.write_bytes(plistlib.dumps(info))
+                sign_bundle(app)
+                result['from'] = '0.0.0'
             result['before_signatures'] = verify_bundle(app)
 
             lock = dict(line.split('=', 1) for line in
@@ -135,20 +164,23 @@ def main():
             if profile.exists():
                 raise RuntimeError('The isolated runner already has a Jellyfin profile')
             profile.mkdir(parents=True)
+            created_profile = True
             (profile / 'conf.json').write_text(json.dumps({'mpv_ext': True, 'mpv_ext_path': None,
                                                          'video_volume': 37}))
             sentinel = profile / 'update-test-sentinel'; sentinel.write_text('retain this profile')
-            home = ROOT / 'outputs/sparkle-test-home'; home.mkdir(parents=True)
+            home = ROOT / 'outputs/sparkle-test-home' / mode; home.mkdir(parents=True)
             env = {**os.environ, 'HOME': str(home), 'TMPDIR': '/tmp'}
             launch = command(launcher, app, env=env,
                              capture_output=True, text=True, timeout=30)
             old_pid = int(launch.stdout.strip().splitlines()[-1])
             result['old_pid'] = old_pid
             result['before_window'] = wait_window(probe, old_pid)
+            owner_pid = json.loads((profile / 'instance.lock').read_text().splitlines()[2])['pid']
             snapshot = command(launcher, '--list', capture_output=True, text=True, timeout=10)
             (evidence / 'running-applications.json').write_text(snapshot.stdout)
             common = [str(cli), str(app), url]
-            for phase, options, timeout in [('discovery', ['probe'], 45), ('installation', [], 120)]:
+            install_options = ['legacy'] if args.legacy_install_only else []
+            for phase, options, timeout in [('discovery', ['probe'], 45), ('installation', install_options, 120)]:
                 with (evidence / f'{phase}.log').open('w') as output:
                     completed = subprocess.run(common + options, env=env, stdout=output,
                                                stderr=subprocess.STDOUT, timeout=timeout)
@@ -164,6 +196,13 @@ def main():
                 raise RuntimeError('The shared profile was not retained')
             if json.loads((profile / 'conf.json').read_text()).get('video_volume') != 37:
                 raise RuntimeError('The saved playback setting was not retained')
+            if args.legacy_install_only:
+                command(launcher, '--quit', old_pid)
+                wait_exit(owner_pid)
+                command(launcher, app, env=env, capture_output=True, text=True, timeout=30)
+            else:
+                wait_exit(old_pid)
+                wait_exit(owner_pid)
             # Sparkle must restart the actual app, without the test launching it.
             deadline = time.monotonic() + 45
             while time.monotonic() < deadline:
@@ -176,6 +215,7 @@ def main():
                     if window:
                         result.update(new_pid=pid, after_window=window, passed=True)
                         os.kill(pid, signal.SIGTERM)
+                        wait_exit(pid)
                         break
                 if result['passed']:
                     break
@@ -201,6 +241,9 @@ def main():
                     if source.exists():
                         import shutil
                         shutil.copy2(source, evidence / (logs.name + '-' + filename))
+        if created_profile:
+            import shutil
+            shutil.rmtree(profile)
         (evidence / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
 
 

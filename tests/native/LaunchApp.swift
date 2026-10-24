@@ -11,6 +11,10 @@ if CommandLine.arguments[1] == "--list" {
     print(String(decoding: try JSONSerialization.data(withJSONObject: apps), as: UTF8.self))
     exit(0)
 }
+if CommandLine.arguments[1] == "--quit" {
+    let application = NSRunningApplication(processIdentifier: pid_t(CommandLine.arguments[2])!)
+    exit(application?.terminate() == true ? 0 : 1)
+}
 let configuration = NSWorkspace.OpenConfiguration()
 configuration.createsNewApplicationInstance = true
 configuration.arguments = Array(CommandLine.arguments.dropFirst(2))
