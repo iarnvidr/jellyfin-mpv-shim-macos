@@ -75,7 +75,7 @@ def main():
     server = None
     try:
         with tempfile.TemporaryDirectory(prefix='jellyfin-sparkle-') as directory:
-            temporary = Path(directory)
+            temporary = Path(directory).resolve()
             verifier = temporary / 'verify-update'
             command('/usr/bin/xcrun', 'swiftc', ROOT / 'tests/native/VerifyUpdate.swift',
                     '-o', verifier)
@@ -145,6 +145,8 @@ def main():
             old_pid = int(launch.stdout.strip().splitlines()[-1])
             result['old_pid'] = old_pid
             result['before_window'] = wait_window(probe, old_pid)
+            snapshot = command(launcher, '--list', capture_output=True, text=True, timeout=10)
+            (evidence / 'running-applications.json').write_text(snapshot.stdout)
             common = [str(cli), str(app), url]
             for phase, options, timeout in [('discovery', ['probe'], 45), ('installation', [], 120)]:
                 with (evidence / f'{phase}.log').open('w') as output:
