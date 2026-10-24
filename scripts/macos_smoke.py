@@ -117,19 +117,27 @@ def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid):
             break
         time.sleep(0.2)
     else: raise RuntimeError('second launch did not restore a minimized window')
-    ipc_command(endpoint,['set_property','user-data/jellyfin-window-action',{'action':'hide'}])
+    response=ipc_command(endpoint,['set_property','user-data/jellyfin-window-action',{'action':'hide'}])
+    if not response or response.get('error')!='success': raise RuntimeError('native hide request failed')
     deadline=time.monotonic()+5
     while time.monotonic()<deadline:
         state=json.loads(run([str(probe_bin),str(owner_pid)],timeout=10).stdout)
-        if state.get('hidden'): break
+        host=json.loads(run([str(probe_bin),str(host_pid)],timeout=10).stdout)
+        # The regular outer app owns application hiding; the accessory engine
+        # owns the window. Verify both user-visible effects independently.
+        if host.get('hidden') and state.get('windows')==0: break
         time.sleep(0.1)
     else:
-        host=json.loads(run([str(probe_bin),str(host_pid)],timeout=10).stdout)
         raise RuntimeError(f'could not hide the real AppKit application: engine={state}; host={host}')
     second=run([str(exe),'--config',str(config)],env=env,timeout=15)
     if second.returncode!=0: raise RuntimeError('second launch did not acknowledge hidden-app activation')
-    state=json.loads(run([str(probe_bin),str(owner_pid)],timeout=10).stdout)
-    if state.get('hidden') or not state.get('windows'): raise RuntimeError('second launch did not unhide the native app')
+    deadline=time.monotonic()+10
+    while time.monotonic()<deadline:
+        state=json.loads(run([str(probe_bin),str(owner_pid)],timeout=10).stdout)
+        host=json.loads(run([str(probe_bin),str(host_pid)],timeout=10).stdout)
+        if not host.get('hidden') and state.get('windows') and not ipc_property(endpoint,'window-minimized'): break
+        time.sleep(0.1)
+    else: raise RuntimeError(f'second launch did not unhide the native app: engine={state}; host={host}')
     return {'name':'second launch restores minimized and hidden native windows after acknowledgement','passed':True}
 
 
