@@ -1,0 +1,29 @@
+name: Sparkle installation check
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/sparkle_smoke.py'
+      - 'tests/native/LaunchApp.swift'
+      - 'tests/native/VerifyUpdate.swift'
+      - '.github/workflows/sparkle-check.yml'
+permissions:
+  contents: read
+jobs:
+  update:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.1'
+      - run: uv python install
+      - name: Verify released update discovery, installation and relaunch
+        run: uv run --locked --no-sync python scripts/sparkle_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Sparkle-installation-evidence-${{ github.run_id }}
+          path: outputs/sparkle-smoke-evidence/**
+          if-no-files-found: error
