@@ -1,6 +1,18 @@
 name: Sparkle installation check
 on:
   workflow_dispatch:
+    inputs:
+      to_version:
+        description: Published version to qualify
+        required: true
+        default: '0.2.3'
+        type: string
+      publish:
+        description: Publish the feed after both installation checks pass
+        default: false
+        type: boolean
+  release:
+    types: [published]
   pull_request:
     paths:
       - 'scripts/sparkle_smoke.py'
@@ -8,8 +20,14 @@ on:
       - 'tests/native/VerifyUpdate.swift'
       - 'tests/native/AutoUpdate.m'
       - '.github/workflows/sparkle-check.yml'
+      - 'scripts/publish_appcast.py'
 permissions:
   contents: read
+concurrency:
+  group: sparkle-feed-${{ github.event_name == 'pull_request' && github.ref || 'publication' }}
+  cancel-in-progress: false
+env:
+  TO_VERSION: ${{ github.event.release.tag_name || inputs.to_version || '0.2.2' }}
 jobs:
   update:
     runs-on: macos-15
@@ -20,11 +38,43 @@ jobs:
         with:
           version: '0.13.1'
       - run: uv python install
-      - name: Verify released update discovery, installation and relaunch
-        run: uv run --locked --no-sync python scripts/sparkle_smoke.py --legacy-install-only
+      - name: Verify legacy delivery and one-time manual reopen
+        run: uv run --locked --no-sync python scripts/sparkle_smoke.py --legacy-install-only --to-version "$TO_VERSION"
+      - name: Verify current host automatic installation and relaunch
+        if: github.event_name != 'pull_request'
+        run: uv run --locked --no-sync python scripts/sparkle_smoke.py --current-host-fixture --to-version "$TO_VERSION"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Sparkle-installation-evidence-${{ github.run_id }}
           path: outputs/sparkle-smoke-evidence/**
           if-no-files-found: error
+  publish:
+    needs: update
+    if: >-
+      github.repository == 'iarnvidr/jellyfin-mpv-shim-macos' &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish) ||
+       (github.event_name == 'release' && startsWith(github.ref, 'refs/tags/v')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Sparkle-installation-evidence-${{ github.run_id }}
+          path: /tmp/sparkle-evidence
+      - name: Validate and publish the exact tested appcast
+        run: |
+          git fetch origin updates
+          FEED_COMMIT=$(git rev-parse FETCH_HEAD)
+          git show "$FEED_COMMIT:appcast.xml" > /tmp/current-appcast.xml
+          python3 scripts/publish_appcast.py /tmp/sparkle-evidence --current-feed /tmp/current-appcast.xml --current-commit "$FEED_COMMIT" --output /tmp/qualified-appcast.xml
+          git worktree add --detach /tmp/appcast-publication "$FEED_COMMIT"
+          cp /tmp/qualified-appcast.xml /tmp/appcast-publication/appcast.xml
+          git -C /tmp/appcast-publication config user.name 'github-actions[bot]'
+          git -C /tmp/appcast-publication config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C /tmp/appcast-publication add appcast.xml
+          git -C /tmp/appcast-publication commit -m "Publish Jellyfin Player $(cat VERSION) update"
+          git -C /tmp/appcast-publication push origin HEAD:refs/heads/updates

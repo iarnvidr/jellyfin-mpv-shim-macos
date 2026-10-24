@@ -5,7 +5,7 @@ import Darwin
 
 /// A small native host for Sparkle. The host bundle is the *main* application,
 /// never this nested helper; consequently Sparkle replaces and relaunches the app.
-final class Updater: NSObject, NSApplicationDelegate {
+final class Updater: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
     private let appBundleURL: URL
     private var updater: SPUUpdater!
     private var userDriver: SPUStandardUserDriver!
@@ -26,7 +26,7 @@ final class Updater: NSObject, NSApplicationDelegate {
         // Keep the delegate alive: SPUUpdater's userDriver and delegate are weakly held.
         userDriver = SPUStandardUserDriver(hostBundle: hostBundle, delegate: nil)
         updater = SPUUpdater(hostBundle: hostBundle, applicationBundle: hostBundle,
-                             userDriver: userDriver, delegate: nil)
+                             userDriver: userDriver, delegate: self)
         do {
             try updater.start()
         } catch {
@@ -39,6 +39,10 @@ final class Updater: NSObject, NSApplicationDelegate {
         }
         NSApp.activate(ignoringOtherApps: true)
         updater.checkForUpdates()
+    }
+
+    func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        NSApp.terminate(nil)
     }
 
     private func showError(_ message: String) {

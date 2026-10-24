@@ -87,7 +87,7 @@ def visible_descendant(probe_bin, pid):
     return None
 
 
-def verify_same_app_restore(exe, config, env, owner_pid, probe_bin):
+def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid):
     deadline=time.monotonic()+20
     # Wait for the app's activation handler, independently of the first blank
     # mpv window. A listener ACK after that handler is the actual readiness test.
@@ -123,7 +123,9 @@ def verify_same_app_restore(exe, config, env, owner_pid, probe_bin):
         state=json.loads(run([str(probe_bin),str(owner_pid)],timeout=10).stdout)
         if state.get('hidden'): break
         time.sleep(0.1)
-    else: raise RuntimeError('could not hide the real AppKit application')
+    else:
+        host=json.loads(run([str(probe_bin),str(host_pid)],timeout=10).stdout)
+        raise RuntimeError(f'could not hide the real AppKit application: engine={state}; host={host}')
     second=run([str(exe),'--config',str(config)],env=env,timeout=15)
     if second.returncode!=0: raise RuntimeError('second launch did not acknowledge hidden-app activation')
     state=json.loads(run([str(probe_bin),str(owner_pid)],timeout=10).stdout)
@@ -355,7 +357,7 @@ def main():
             raise RuntimeError('windowed Vulkan playback did not load bundled MoltenVK')
         result['tests'].append({'name':'Vulkan uses bundled MoltenVK only','passed':True})
         if options.upgrade_check:
-            result['tests'].append(verify_same_app_restore(exe,config,env,state['pid'],probe_bin))
+            result['tests'].append(verify_same_app_restore(exe,config,env,state['pid'],probe_bin,proc.pid))
         stop_process(proc)
         if proc.returncode != 0: raise RuntimeError(f'main app did not shut down cleanly on SIGTERM: {proc.returncode}')
         result['tests'].append({'name':'main app handles SIGTERM and exits cleanly','returncode':proc.returncode,'passed':True})

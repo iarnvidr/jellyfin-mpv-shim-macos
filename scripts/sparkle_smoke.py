@@ -2,11 +2,13 @@
 import argparse
 import functools
 import getpass
+import hashlib
 import http.server
 import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import signal
 import subprocess
 import sys
@@ -15,6 +17,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'work'))
@@ -82,6 +85,8 @@ def main():
     args.to_version = args.to_version.removeprefix('v')
     if args.current_host_fixture:
         args.from_version = args.to_version
+    if any(not re.fullmatch(r'\d+\.\d+\.\d+', value) for value in (args.from_version, args.to_version)):
+        parser.error('release versions must be numeric major.minor.patch')
     if sys.platform != 'darwin' or os.environ.get('GITHUB_ACTIONS') != 'true':
         raise RuntimeError('Run this test only on an isolated macOS GitHub runner')
     mode = 'current-host' if args.current_host_fixture else 'legacy'
@@ -140,13 +145,22 @@ def main():
                     '-Wl,-rpath,' + str(sparkle))
 
             feed = temporary / 'feed'; feed.mkdir()
+            command('git', 'fetch', 'origin', 'updates')
+            base_commit = subprocess.check_output(['git', 'rev-parse', 'FETCH_HEAD'], text=True).strip()
+            existing = subprocess.check_output(['git', 'show', base_commit + ':appcast.xml'])
+            with zipfile.ZipFile(new_archive) as archive:
+                target_info = plistlib.loads(archive.read('Jellyfin Player.app/Contents/Info.plist'))
             metadata = {'version': args.to_version, 'signature': new_signature['edSignature'],
-                        'length': new_archive.stat().st_size, 'minimum_os': '15.7.9',
+                        'length': new_archive.stat().st_size, 'minimum_os': target_info['LSMinimumSystemVersion'],
                         'asset_url': release.ASSET_ROOT + f'v{args.to_version}/' + new_archive.name,
-                        'feed_url': release.FEED_URL, 'release_notes': 'Jellyfin Player update.'}
-            (feed / 'appcast.xml').write_bytes(release.update_feed(
-                b'<rss version="2.0"><channel><title>Jellyfin Player</title></channel></rss>',
-                metadata, 'v' + args.to_version))
+                        'feed_url': release.FEED_URL,
+                        'release_notes': f'<a href="https://github.com/iarnvidr/jellyfin-mpv-shim-macos/releases/tag/v{args.to_version}">View release notes</a>'}
+            candidate = release.update_feed(existing, metadata, 'v' + args.to_version)
+            (feed / 'appcast.xml').write_bytes(candidate)
+            (evidence / 'candidate-appcast.xml').write_bytes(candidate)
+            result.update(metadata=metadata, base_feed_commit=base_commit,
+                          base_feed_sha256=hashlib.sha256(existing).hexdigest(),
+                          appcast_sha256=hashlib.sha256(candidate).hexdigest())
             server = http.server.ThreadingHTTPServer(('127.0.0.1', 0),
                 functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(feed)))
             threading.Thread(target=server.serve_forever, daemon=True).start()
