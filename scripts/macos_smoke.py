@@ -80,13 +80,13 @@ def ipc_property(endpoint, name):
     return response.get('data') if response and response.get('error')=='success' else None
 
 
-def visible_descendant(probe_bin, pid):
+def visible_descendant(probe_bin, pid, panels=False):
     pending=[pid]; seen=set()
     while pending:
         candidate=pending.pop()
         if candidate in seen: continue
         seen.add(candidate)
-        probe=run([str(probe_bin),str(candidate)],timeout=10)
+        probe=run([str(probe_bin),str(candidate)]+(['--panels'] if panels else []),timeout=10)
         if probe.returncode==0 and json.loads(probe.stdout).get('windows'):
             return json.loads(probe.stdout)
         pending.extend(int(child) for child in run(['/usr/bin/pgrep','-P',str(candidate)],timeout=5).stdout.split())
@@ -190,10 +190,8 @@ def verify_legacy_conflict(root, app, env, base, probe_bin, evidence):
                 raise RuntimeError('upgrade conflict omitted legacy app path, PID or version')
             dialogs=[]
             while time.monotonic()<deadline:
-                for pid in run(['/usr/bin/pgrep','-P',str(newcomer.pid)],timeout=5).stdout.split():
-                    probe=run([str(probe_bin),pid,'--panels'],timeout=10)
-                    if probe.returncode==0 and json.loads(probe.stdout).get('windows'):
-                        dialogs.append(int(pid))
+                dialog=visible_descendant(probe_bin,newcomer.pid,panels=True)
+                if dialog: dialogs.append(dialog['pid'])
                 if dialogs: break
                 time.sleep(0.2)
             if not dialogs: raise RuntimeError('upgrade conflict did not show an actionable native dialog')

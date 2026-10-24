@@ -75,6 +75,14 @@ final class AppHost: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // Preserve startup failures reported by Core (including lock conflicts)
+        // when the native host closes after its diagnostic dialog is dismissed.
+        if let core = core, !core.isRunning, core.terminationStatus != 0 {
+            exit(core.terminationStatus)
+        }
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         NSApp.unhide(nil)
         showPlayer()
