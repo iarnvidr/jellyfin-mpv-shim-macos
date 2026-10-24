@@ -98,10 +98,17 @@ def main():
             sparkle = temporary / 'sparkle'; sparkle.mkdir()
             with tarfile.open(sparkle_tar) as archive:
                 archive.extractall(sparkle, filter='data')
-            candidates = list(sparkle.rglob('sparkle.app/Contents/MacOS/sparkle'))
-            if len(candidates) != 1:
-                raise RuntimeError(f'Expected one official Sparkle CLI, found {candidates}')
-            cli = candidates[0]
+            harness = temporary / 'Update Test.app/Contents'
+            (harness / 'MacOS').mkdir(parents=True)
+            (harness / 'Info.plist').write_bytes(plistlib.dumps({
+                'CFBundleIdentifier': 'org.jellyfin.mpvshim.update-test',
+                'CFBundleExecutable': 'AutoUpdate', 'CFBundlePackageType': 'APPL',
+                'CFBundleVersion': '1', 'LSUIElement': True}))
+            cli = harness / 'MacOS/AutoUpdate'
+            command('/usr/bin/xcrun', 'clang', '-fobjc-arc', '-fblocks',
+                    ROOT / 'tests/native/AutoUpdate.m', '-o', cli,
+                    '-F', sparkle, '-framework', 'AppKit', '-framework', 'Sparkle',
+                    '-Wl,-rpath,' + str(sparkle))
 
             feed = temporary / 'feed'; feed.mkdir()
             metadata = {'version': args.to_version, 'signature': new_signature['edSignature'],
@@ -138,9 +145,8 @@ def main():
             old_pid = int(launch.stdout.strip().splitlines()[-1])
             result['old_pid'] = old_pid
             result['before_window'] = wait_window(probe, old_pid)
-            common = [str(cli), str(app), '--application', str(app), '--check-immediately',
-                      '--feed-url', url, '--user-agent-name', 'Jellyfin-Player-update-test', '--verbose']
-            for phase, options, timeout in [('discovery', ['--probe'], 45), ('installation', [], 120)]:
+            common = [str(cli), str(app), url]
+            for phase, options, timeout in [('discovery', ['probe'], 45), ('installation', [], 120)]:
                 with (evidence / f'{phase}.log').open('w') as output:
                     completed = subprocess.run(common + options, env=env, stdout=output,
                                                stderr=subprocess.STDOUT, timeout=timeout)

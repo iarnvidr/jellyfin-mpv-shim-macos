@@ -6,6 +6,7 @@ on:
       - 'scripts/sparkle_smoke.py'
       - 'tests/native/LaunchApp.swift'
       - 'tests/native/VerifyUpdate.swift'
+      - 'tests/native/AutoUpdate.m'
       - '.github/workflows/sparkle-check.yml'
 permissions:
   contents: read
