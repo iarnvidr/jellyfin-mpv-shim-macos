@@ -18,6 +18,7 @@ let payload: [String: Any] = [
     "pid": Int(pid), "registered": app?.isTerminated == false,
     "bundlePath": app?.bundleURL?.path ?? "",
     "localizedName": app?.localizedName ?? "",
+    "activationPolicy": app?.activationPolicy.rawValue ?? -1,
     "hidden": app?.isHidden ?? false,
     "windows": windows.count,
     "windowNames": windows.compactMap { $0[kCGWindowName as String] as? String },
@@ -32,12 +33,18 @@ def run(argv, **kw):
     return subprocess.run(argv, capture_output=True, text=True, **kw)
 
 
-def stop_process(process):
+def stop_process(process, evidence=None):
     if process.poll() is None:
         process.terminate()
         try:
             process.wait(timeout=15)
         except subprocess.TimeoutExpired:
+            if evidence:
+                snapshot=run(['/bin/ps','-axo','pid=,ppid=,stat=,command='],timeout=5)
+                (evidence/'shutdown-processes.txt').write_text(snapshot.stdout)
+                run(['/usr/bin/sample',str(process.pid),'1','-file',str(evidence/'shutdown-host.txt')],timeout=10)
+                for child in run(['/usr/bin/pgrep','-P',str(process.pid)],timeout=5).stdout.split():
+                    run(['/usr/bin/sample',child,'1','-file',str(evidence/f'shutdown-child-{child}.txt')],timeout=10)
             process.kill()
             process.wait(timeout=10)
 
@@ -73,20 +80,26 @@ def ipc_property(endpoint, name):
     return response.get('data') if response and response.get('error')=='success' else None
 
 
-def visible_descendant(probe_bin, pid):
+def visible_descendant(probe_bin, pid, panels=False):
     pending=[pid]; seen=set()
     while pending:
         candidate=pending.pop()
         if candidate in seen: continue
         seen.add(candidate)
-        probe=run([str(probe_bin),str(candidate)],timeout=10)
+        probe=run([str(probe_bin),str(candidate)]+(['--panels'] if panels else []),timeout=10)
         if probe.returncode==0 and json.loads(probe.stdout).get('windows'):
             return json.loads(probe.stdout)
         pending.extend(int(child) for child in run(['/usr/bin/pgrep','-P',str(candidate)],timeout=5).stdout.split())
     return None
 
 
-def verify_same_app_restore(exe, config, env, owner_pid, probe_bin):
+def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid, evidence):
+    transitions=[]
+    def record(phase, engine, host):
+        minimized=ipc_property(endpoint,'window-minimized')
+        transitions.append({'phase':phase,'time':time.monotonic(),'engine':engine,'host':host,'minimized':minimized})
+        (evidence/'hide-restore.json').write_text(json.dumps(transitions,indent=2)+'\n')
+        return minimized
     deadline=time.monotonic()+20
     # Wait for the app's activation handler, independently of the first blank
     # mpv window. A listener ACK after that handler is the actual readiness test.
@@ -116,17 +129,29 @@ def verify_same_app_restore(exe, config, env, owner_pid, probe_bin):
             break
         time.sleep(0.2)
     else: raise RuntimeError('second launch did not restore a minimized window')
-    ipc_command(endpoint,['set_property','user-data/jellyfin-window-action',{'action':'hide'}])
+    response=ipc_command(endpoint,['set_property','user-data/jellyfin-window-action',{'action':'hide'}])
+    if not response or response.get('error')!='success': raise RuntimeError('native hide request failed')
     deadline=time.monotonic()+5
     while time.monotonic()<deadline:
         state=json.loads(run([str(probe_bin),str(owner_pid)],timeout=10).stdout)
-        if state.get('hidden'): break
+        host=json.loads(run([str(probe_bin),str(host_pid)],timeout=10).stdout)
+        # The regular outer app owns application hiding; the accessory engine
+        # owns the window. Verify both user-visible effects independently.
+        minimized=record('hide',state,host)
+        if host.get('hidden') is True and state.get('registered') is True and state.get('windows')==0 and minimized is False: break
         time.sleep(0.1)
-    else: raise RuntimeError('could not hide the real AppKit application')
+    else:
+        raise RuntimeError(f'could not hide the real AppKit application: engine={state}; host={host}')
     second=run([str(exe),'--config',str(config)],env=env,timeout=15)
     if second.returncode!=0: raise RuntimeError('second launch did not acknowledge hidden-app activation')
-    state=json.loads(run([str(probe_bin),str(owner_pid)],timeout=10).stdout)
-    if state.get('hidden') or not state.get('windows'): raise RuntimeError('second launch did not unhide the native app')
+    deadline=time.monotonic()+10
+    while time.monotonic()<deadline:
+        state=json.loads(run([str(probe_bin),str(owner_pid)],timeout=10).stdout)
+        host=json.loads(run([str(probe_bin),str(host_pid)],timeout=10).stdout)
+        minimized=record('reopen',state,host)
+        if host.get('hidden') is False and state.get('registered') is True and state.get('windows',0)>0 and minimized is False: break
+        time.sleep(0.1)
+    else: raise RuntimeError(f'second launch did not unhide the native app: engine={state}; host={host}')
     return {'name':'second launch restores minimized and hidden native windows after acknowledgement','passed':True}
 
 
@@ -165,10 +190,8 @@ def verify_legacy_conflict(root, app, env, base, probe_bin, evidence):
                 raise RuntimeError('upgrade conflict omitted legacy app path, PID or version')
             dialogs=[]
             while time.monotonic()<deadline:
-                for pid in run(['/usr/bin/pgrep','-P',str(newcomer.pid)],timeout=5).stdout.split():
-                    probe=run([str(probe_bin),pid,'--panels'],timeout=10)
-                    if probe.returncode==0 and json.loads(probe.stdout).get('windows'):
-                        dialogs.append(int(pid))
+                dialog=visible_descendant(probe_bin,newcomer.pid,panels=True)
+                if dialog: dialogs.append(dialog['pid'])
                 if dialogs: break
                 time.sleep(0.2)
             if not dialogs: raise RuntimeError('upgrade conflict did not show an actionable native dialog')
@@ -327,6 +350,13 @@ def main():
             time.sleep(1)
         (evidence/'window-probe-result.json').write_text(json.dumps({'launcherPID':proc.pid,'ownerDetails':owner_details},indent=2)+'\n')
         if not windows: raise RuntimeError('native CGWindowList probe found no app-owned descendant window')
+        host_probe = run([str(probe_bin), str(proc.pid)], timeout=10)
+        host_state = json.loads(host_probe.stdout)
+        if (not host_state.get('registered') or host_state.get('activationPolicy') != 0
+                or pathlib.Path(host_state.get('bundlePath', '')).resolve() != moved.resolve()):
+            raise RuntimeError(f'The outer Jellyfin Player app is not the registered Dock host: {host_state}')
+        result['tests'].append({'name': 'outer app is the registered Dock and Sparkle host',
+                                'passed': True, 'host': host_state})
         if state.get('localizedName') and state['localizedName'] != 'Jellyfin Player':
             raise RuntimeError(f'player has the wrong running-app name: {state["localizedName"]}')
         if state.get('windowNames') and not any('Jellyfin Player' in name for name in state['windowNames']):
@@ -347,8 +377,8 @@ def main():
             raise RuntimeError('windowed Vulkan playback did not load bundled MoltenVK')
         result['tests'].append({'name':'Vulkan uses bundled MoltenVK only','passed':True})
         if options.upgrade_check:
-            result['tests'].append(verify_same_app_restore(exe,config,env,state['pid'],probe_bin))
-        stop_process(proc)
+            result['tests'].append(verify_same_app_restore(exe,config,env,state['pid'],probe_bin,proc.pid,evidence))
+        stop_process(proc,evidence)
         if proc.returncode != 0: raise RuntimeError(f'main app did not shut down cleanly on SIGTERM: {proc.returncode}')
         result['tests'].append({'name':'main app handles SIGTERM and exits cleanly','returncode':proc.returncode,'passed':True})
         if options.upgrade_check:

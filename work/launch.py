@@ -14,7 +14,9 @@ def launch():
     # Frozen app executable lives in Contents/MacOS; mpv is retained in its own
     # nested app bundle so dyld sees that bundle's Frameworks and rpaths.
     executable = Path(sys.executable).resolve()
-    bundle_contents = next((p for p in executable.parents if p.name == 'Contents'), None)
+    import mac_update
+    bundle = mac_update.main_bundle(executable)
+    bundle_contents = bundle / 'Contents' if bundle else None
     app_contents = bundle_contents or resources.parent.parent
     player = app_contents / 'Resources/mpv.app/Contents/MacOS/mpv'
     import certifi
@@ -50,7 +52,7 @@ def launch():
     Settings.load = load
     import mac_single_instance
     import startup
-    guard_class = mac_single_instance.install(executable, activation_check=lambda: startup.WINDOW_ACTIVATION)
+    guard_class = mac_single_instance.install(app_contents / 'MacOS/Jellyfin Player', activation_check=lambda: startup.WINDOW_ACTIVATION)
     try:
         from jellyfin_mpv_shim.args import get_args
         if 'stop' not in get_args().command:

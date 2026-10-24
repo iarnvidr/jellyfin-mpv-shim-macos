@@ -6,11 +6,24 @@ import subprocess
 import sys
 
 
+def main_bundle(executable=None):
+    import plistlib
+    for parent in Path(executable or sys.executable).resolve().parents:
+        if parent.suffix != '.app':
+            continue
+        try:
+            info = plistlib.loads((parent / 'Contents/Info.plist').read_bytes())
+            if info.get('CFBundleIdentifier') == 'org.jellyfin.mpvshim.local':
+                return parent
+        except (OSError, ValueError):
+            continue
+    return None
 
 def current_version():
     import plistlib
-    executable = Path(sys.executable).resolve()
-    app = next((parent for parent in executable.parents if parent.suffix == '.app'), None)
+    app = main_bundle()
+    if app is None:
+        return 'unknown'
     try:
         with (app / 'Contents/Info.plist').open('rb') as stream:
             return str(plistlib.load(stream).get('CFBundleShortVersionString', 'unknown'))
@@ -26,9 +39,7 @@ def check():
 
 def show_updater():
     """Open packaged Sparkle helper, passing the containing app as application bundle."""
-    executable = Path(sys.executable).resolve()
-    # PyInstaller executable is Contents/MacOS/<name>; the application is its ancestor.
-    app = next((parent for parent in executable.parents if parent.suffix == '.app'), None)
+    app = main_bundle()
     if app is None:
         raise RuntimeError('Cannot locate the main application bundle for Sparkle.')
     helper = app / 'Contents/Helpers/Mac Updater.app/Contents/MacOS/Mac Updater'

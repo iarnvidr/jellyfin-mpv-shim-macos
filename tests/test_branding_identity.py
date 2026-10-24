@@ -26,7 +26,8 @@ class BrandingIdentity(unittest.TestCase):
         self.assertIn('Jellyfin Player ', compat)
         build = (ROOT / 'work/build.py').read_text()
         self.assertIn("shutil.rmtree(standalone)", build)
-        self.assertIn("for standalone in (app/'Contents/Frameworks/mpv', app/'Contents/Resources/mpv')", build)
+        self.assertIn("core/'Frameworks/mpv'", build)
+        self.assertIn("core/'Resources/mpv'", build)
         self.assertNotIn('shutil.rmtree(Path.home()', build)
 
     def test_sparkle_receives_actual_main_app_bundle(self):
@@ -34,7 +35,7 @@ class BrandingIdentity(unittest.TestCase):
         launcher = (ROOT / 'work/mac_update.py').read_text()
         self.assertIn('org.jellyfin.mpvshim.local', updater)
         self.assertIn('hostBundle: hostBundle, applicationBundle: hostBundle', updater)
-        self.assertIn("parent.suffix == '.app'", launcher)
+        self.assertIn("app = main_bundle()", launcher)
         self.assertIn("Contents/Helpers/Mac Updater.app", launcher)
 
 
