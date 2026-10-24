@@ -87,7 +87,13 @@ def visible_descendant(probe_bin, pid):
     return None
 
 
-def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid):
+def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid, evidence):
+    transitions=[]
+    def record(phase, engine, host):
+        minimized=ipc_property(endpoint,'window-minimized')
+        transitions.append({'phase':phase,'time':time.monotonic(),'engine':engine,'host':host,'minimized':minimized})
+        (evidence/'hide-restore.json').write_text(json.dumps(transitions,indent=2)+'\n')
+        return minimized
     deadline=time.monotonic()+20
     # Wait for the app's activation handler, independently of the first blank
     # mpv window. A listener ACK after that handler is the actual readiness test.
@@ -125,7 +131,8 @@ def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid):
         host=json.loads(run([str(probe_bin),str(host_pid)],timeout=10).stdout)
         # The regular outer app owns application hiding; the accessory engine
         # owns the window. Verify both user-visible effects independently.
-        if host.get('hidden') and state.get('windows')==0: break
+        minimized=record('hide',state,host)
+        if host.get('hidden') is True and state.get('registered') is True and state.get('windows')==0 and minimized is False: break
         time.sleep(0.1)
     else:
         raise RuntimeError(f'could not hide the real AppKit application: engine={state}; host={host}')
@@ -135,7 +142,8 @@ def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid):
     while time.monotonic()<deadline:
         state=json.loads(run([str(probe_bin),str(owner_pid)],timeout=10).stdout)
         host=json.loads(run([str(probe_bin),str(host_pid)],timeout=10).stdout)
-        if not host.get('hidden') and state.get('windows') and not ipc_property(endpoint,'window-minimized'): break
+        minimized=record('reopen',state,host)
+        if host.get('hidden') is False and state.get('registered') is True and state.get('windows',0)>0 and minimized is False: break
         time.sleep(0.1)
     else: raise RuntimeError(f'second launch did not unhide the native app: engine={state}; host={host}')
     return {'name':'second launch restores minimized and hidden native windows after acknowledgement','passed':True}
@@ -365,7 +373,7 @@ def main():
             raise RuntimeError('windowed Vulkan playback did not load bundled MoltenVK')
         result['tests'].append({'name':'Vulkan uses bundled MoltenVK only','passed':True})
         if options.upgrade_check:
-            result['tests'].append(verify_same_app_restore(exe,config,env,state['pid'],probe_bin,proc.pid))
+            result['tests'].append(verify_same_app_restore(exe,config,env,state['pid'],probe_bin,proc.pid,evidence))
         stop_process(proc)
         if proc.returncode != 0: raise RuntimeError(f'main app did not shut down cleanly on SIGTERM: {proc.returncode}')
         result['tests'].append({'name':'main app handles SIGTERM and exits cleanly','returncode':proc.returncode,'passed':True})
