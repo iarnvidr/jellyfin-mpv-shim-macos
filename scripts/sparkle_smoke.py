@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'work'))
 import release
 from bundle_signing import sign_bundle, verify_bundle
-from macos_smoke import PROBE_SOURCE, visible_descendant
+from macos_smoke import PROBE_SOURCE, visible_descendant, wait_for_browser
 
 
 def command(*args, **kwargs):
@@ -189,6 +189,7 @@ def main():
             old_pid = int(launch.stdout.strip().splitlines()[-1])
             result['old_pid'] = old_pid
             result['before_window'] = wait_window(probe, old_pid)
+            wait_for_browser(profile)
             owner_pid = json.loads((profile / 'instance.lock').read_text().splitlines()[2])['pid']
             snapshot = command(launcher, '--list', capture_output=True, text=True, timeout=10)
             (evidence / 'running-applications.json').write_text(snapshot.stdout)
@@ -227,9 +228,11 @@ def main():
                 for pid in new_pids:
                     window = visible_descendant(probe, pid)
                     if window:
-                        result.update(new_pid=pid, after_window=window, passed=True)
+                        wait_for_browser(profile)
+                        result.update(new_pid=pid, after_window=window)
                         os.kill(pid, signal.SIGTERM)
                         wait_exit(pid)
+                        result['passed'] = True
                         break
                 if result['passed']:
                     break
@@ -237,6 +240,7 @@ def main():
             if not result['passed']:
                 raise RuntimeError('The installed app did not relaunch with a visible window')
     except Exception as error:
+        result['passed'] = False
         result['error'] = str(error)
         raise
     finally:
