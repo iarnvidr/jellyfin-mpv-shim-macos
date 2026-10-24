@@ -32,7 +32,10 @@ final class AppHost: NSObject, NSApplicationDelegate {
         process.environment = environment
         process.terminationHandler = { [weak self] process in
             self?.log("Core exited status=\(process.terminationStatus)")
-            DispatchQueue.main.async {
+            // terminateLater can run a nested AppKit loop from a main-queue
+            // signal handler. Dispatching back to that queue would wait for
+            // terminate() to return, while terminate() waits for this reply.
+            RunLoop.main.perform(inModes: [.common, .modalPanel]) {
                 guard let self = self else { return }
                 self.log("Core exit on main queue; stopping=\(self.stopping)")
                 if self.stopping { NSApp.reply(toApplicationShouldTerminate: true) }
