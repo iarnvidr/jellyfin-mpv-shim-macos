@@ -1,7 +1,7 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:ns0="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
   <channel>
-    <title>Jellyfin Player Updates</title>
+    <item><ns0:version>0.2.3</ns0:version><title>0.2.3</title><ns0:shortVersionString>0.2.3</ns0:shortVersionString><ns0:minimumSystemVersion>15.7.9</ns0:minimumSystemVersion><description>&lt;a href="https://github.com/iarnvidr/jellyfin-mpv-shim-macos/releases/tag/v0.2.3"&gt;View release notes&lt;/a&gt;</description><enclosure url="https://github.com/iarnvidr/jellyfin-mpv-shim-macos/releases/download/v0.2.3/Jellyfin-Player-0.2.3-Apple-Silicon.zip" length="84229661" type="application/octet-stream" ns0:edSignature="Wkxobxdrz7gRUXvFFWTFeVWB5lfnZPjiWggNBtQbsIidYOuyFp9uCOUSIQRFxhXMn/QqPA/6QHt32AGza4DEAg==" /></item><title>Jellyfin Player Updates</title>
     <link>https://github.com/iarnvidr/jellyfin-mpv-shim-macos/releases</link>
     <description>Updates for Jellyfin Player on macOS.</description>
     <language>en</language>
