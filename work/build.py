@@ -34,7 +34,25 @@ for d in importlib.metadata.distributions():
  if n and not n.lower().startswith(('pyinstaller','altgraph','macholib')): metadata.extend(['--copy-metadata',n])
 stage('PyInstaller')
 command(str(ROOT/'.venv/bin/pyinstaller'),'--noconfirm','--clean','--windowed','--onedir','--name',NAME,'--osx-bundle-identifier','org.jellyfin.mpvshim.local','--icon',str(WORK/'source/jellyfin.icns'),'--collect-all','jellyfin_mpv_shim','--collect-all','jellyfin_apiclient_python','--collect-all','python_mpv_jsonipc','--hidden-import','PIL.ImageFont','--add-binary',str(mpvbin)+':.','--add-binary',str(WORK/'native-scroll.dylib')+':.','--distpath',str(WORK/'dist'),'--workpath',str(WORK/'pyinstaller'),'--specpath',str(WORK),*metadata,str(WORK/'launch.py'))
-app=WORK/'dist'/(NAME+'.app'); support=app/'Contents/Resources/mac_support'; support.mkdir(parents=True,exist_ok=True)
+app=WORK/'dist'/(NAME+'.app')
+# A real AppKit process owns the outer application and handles Sparkle's quit
+# event. Keep the frozen Python runtime in a background-only nested bundle.
+core=app/'Contents/Helpers/Jellyfin Player Core.app/Contents'
+core.joinpath('MacOS').mkdir(parents=True)
+with (app/'Contents/Info.plist').open('rb') as f: core_info=plistlib.load(f)
+core_info.update(CFBundleExecutable='Jellyfin Player Core',CFBundleIdentifier='org.jellyfin.mpvshim.core',
+                 CFBundleName='Jellyfin Player Core',CFBundleVersion=VERSION,
+                 CFBundleShortVersionString=VERSION,LSBackgroundOnly=True)
+core_info.pop('LSUIElement',None)
+with (core/'Info.plist').open('wb') as f: plistlib.dump(core_info,f)
+shutil.move(app/'Contents/MacOS'/NAME,core/'MacOS/Jellyfin Player Core')
+for directory in ('Frameworks','Resources'):
+ shutil.move(app/'Contents'/directory,core/directory)
+ (app/'Contents'/directory).mkdir()
+command(swiftc,str(WORK/'AppHost.swift'),'-o',str(app/'Contents/MacOS'/NAME),'-framework','AppKit')
+shutil.copy2(WORK/'native-scroll.dylib',app/'Contents/Frameworks/native-scroll.dylib')
+shutil.copy2(WORK/'source/jellyfin.icns',app/'Contents/Resources/jellyfin.icns')
+support=app/'Contents/Resources/mac_support'; support.mkdir(parents=True,exist_ok=True)
 # The official artifact is a complete app, not a standalone executable: preserve its
 # transitive dylibs, MoltenVK, Vulkan ICD resources and config next to the binary.
 mpv_dest=app/'Contents/Resources/mpv.app'
@@ -55,7 +73,7 @@ for icon in (mpv_dest/'Contents/Resources').glob('*.icns'):
 # PyInstaller emits the executable into Contents/Frameworks as well as the
 # resources destination. Remove both redundant artifacts (whether file or link)
 # before signing; never remove the nested app's actual executable.
-for standalone in (app/'Contents/Frameworks/mpv', app/'Contents/Resources/mpv'):
+for standalone in (app/'Contents/Frameworks/mpv', app/'Contents/Resources/mpv',core/'Frameworks/mpv',core/'Resources/mpv'):
  if standalone.is_symlink() or standalone.is_file(): standalone.unlink()
  elif standalone.is_dir(): shutil.rmtree(standalone)
 stage('relocate native load commands')
@@ -118,7 +136,7 @@ except Exception as exc: raise SystemExit('Invalid configured Sparkle public key
 if len(public_key_bytes)!=32: raise SystemExit('Sparkle public key must decode to 32 bytes')
 env_public_key=os.environ.get('SPARKLE_PUBLIC_ED_KEY')
 if env_public_key is not None and env_public_key != public_key: raise SystemExit('SPARKLE_PUBLIC_ED_KEY does not match the configured Sparkle public key')
-info.update(CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION,CFBundleName='Jellyfin Player',CFBundleDisplayName='Jellyfin Player',CFBundleExecutable='Jellyfin Player',LSMinimumSystemVersion=MINIMUM_MACOS,NSHighResolutionCapable=True,SUFeedURL='https://raw.githubusercontent.com/iarnvidr/jellyfin-mpv-shim-macos/updates/appcast.xml',SUPublicEDKey=public_key)
+info.update(CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION,CFBundleName='Jellyfin Player',CFBundleDisplayName='Jellyfin Player',CFBundleExecutable='Jellyfin Player',CFBundleIconFile='jellyfin.icns',LSUIElement=False,LSBackgroundOnly=False,LSMinimumSystemVersion=MINIMUM_MACOS,NSHighResolutionCapable=True,SUFeedURL='https://raw.githubusercontent.com/iarnvidr/jellyfin-mpv-shim-macos/updates/appcast.xml',SUPublicEDKey=public_key)
 info.update(NSLocalNetworkUsageDescription='Find and connect to your Jellyfin server on your local network.',
             NSBonjourServices=['_jellyfin._tcp'])
 with info_path.open('wb') as f: plistlib.dump(info,f)

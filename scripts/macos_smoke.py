@@ -18,6 +18,7 @@ let payload: [String: Any] = [
     "pid": Int(pid), "registered": app?.isTerminated == false,
     "bundlePath": app?.bundleURL?.path ?? "",
     "localizedName": app?.localizedName ?? "",
+    "activationPolicy": app?.activationPolicy.rawValue ?? -1,
     "hidden": app?.isHidden ?? false,
     "windows": windows.count,
     "windowNames": windows.compactMap { $0[kCGWindowName as String] as? String },
@@ -327,6 +328,13 @@ def main():
             time.sleep(1)
         (evidence/'window-probe-result.json').write_text(json.dumps({'launcherPID':proc.pid,'ownerDetails':owner_details},indent=2)+'\n')
         if not windows: raise RuntimeError('native CGWindowList probe found no app-owned descendant window')
+        host_probe = run([str(probe_bin), str(proc.pid)], timeout=10)
+        host_state = json.loads(host_probe.stdout)
+        if (not host_state.get('registered') or host_state.get('activationPolicy') != 0
+                or pathlib.Path(host_state.get('bundlePath', '')).resolve() != moved.resolve()):
+            raise RuntimeError(f'The outer Jellyfin Player app is not the registered Dock host: {host_state}')
+        result['tests'].append({'name': 'outer app is the registered Dock and Sparkle host',
+                                'passed': True, 'host': host_state})
         if state.get('localizedName') and state['localizedName'] != 'Jellyfin Player':
             raise RuntimeError(f'player has the wrong running-app name: {state["localizedName"]}')
         if state.get('windowNames') and not any('Jellyfin Player' in name for name in state['windowNames']):

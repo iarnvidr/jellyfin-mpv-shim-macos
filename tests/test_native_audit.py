@@ -111,6 +111,7 @@ class NativeAuditParsing(unittest.TestCase):
         self.assertIn('BUILD_STAGE',source)
         launch=(build.parent/'launch.py').read_text()
         self.assertIn("player = app_contents / 'Resources/mpv.app/Contents/MacOS/mpv'",launch)
-        self.assertIn("standalone in (app/'Contents/Frameworks/mpv', app/'Contents/Resources/mpv')",source)
+        self.assertIn("core/'Frameworks/mpv'",source)
+        self.assertIn("core/'Resources/mpv'",source)
 
 if __name__=='__main__': unittest.main()

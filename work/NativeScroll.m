@@ -30,6 +30,9 @@ static NSData *iconPixels(NSImage *image) {
 }
 
 static void applyPlayerBranding(void) {
+    if ([NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_HOSTED"] isEqualToString:@"1"]) {
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+    }
     NSBundle *bundle = NSBundle.mainBundle;
     NSString *iconPath = [bundle pathForResource:@"jellyfin" ofType:@"icns"];
     NSImage *icon = iconPath ? [[NSImage alloc] initWithContentsOfFile:iconPath] : nil;
