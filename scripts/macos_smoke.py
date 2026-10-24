@@ -93,13 +93,7 @@ def visible_descendant(probe_bin, pid, panels=False):
     return None
 
 
-def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid, evidence):
-    transitions=[]
-    def record(phase, engine, host):
-        minimized=ipc_property(endpoint,'window-minimized')
-        transitions.append({'phase':phase,'time':time.monotonic(),'engine':engine,'host':host,'minimized':minimized})
-        (evidence/'hide-restore.json').write_text(json.dumps(transitions,indent=2)+'\n')
-        return minimized
+def wait_for_browser(config):
     deadline=time.monotonic()+20
     # Wait for the app's activation handler, independently of the first blank
     # mpv window. A listener ACK after that handler is the actual readiness test.
@@ -112,6 +106,16 @@ def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid, ev
         except (OSError,ValueError,IndexError): pass
         time.sleep(0.2)
     else: raise RuntimeError('main browser never acknowledged window activation')
+
+
+def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid, evidence):
+    transitions=[]
+    def record(phase, engine, host):
+        minimized=ipc_property(endpoint,'window-minimized')
+        transitions.append({'phase':phase,'time':time.monotonic(),'engine':engine,'host':host,'minimized':minimized})
+        (evidence/'hide-restore.json').write_text(json.dumps(transitions,indent=2)+'\n')
+        return minimized
+    wait_for_browser(config)
     command=run(['/bin/ps','-ww','-p',str(owner_pid),'-o','command='],timeout=5).stdout
     endpoint=re.search(r'--input-ipc-server=([^\s]+)',command)
     if not endpoint: raise RuntimeError('could not locate the real app engine IPC socket')
@@ -390,9 +394,10 @@ def main():
                     if visible_descendant(probe_bin,reopened.pid): break
                     time.sleep(0.5)
                 else: raise RuntimeError('no usable window after quit and reopen')
+                wait_for_browser(config)
             finally:
-                stop_process(reopened)
-            if reopened.returncode!=0: raise RuntimeError('reopened app did not exit cleanly')
+                stop_process(reopened,evidence)
+            if reopened.returncode!=0: raise RuntimeError(f'reopened app did not exit cleanly: {reopened.returncode}')
             result['tests'].append({'name':'quit and reopen with the same settings produces a native window','passed':True})
             result['tests'].extend(verify_legacy_conflict(root,moved,env,base,probe_bin,evidence))
     finally:
