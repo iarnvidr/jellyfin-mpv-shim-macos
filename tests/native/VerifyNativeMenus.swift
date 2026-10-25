@@ -15,6 +15,10 @@ struct VerifyNativeMenus {
                 ["title": "Audio", "items": [["title": "English", "command": "7:set-audio:2", "enabled": true, "checked": true]]]
             ]]
         bar.update(model)
+        app.mainMenu = NSMenu()
+        bar.update(model)
+        // mpv may install its stock menu after AppKit's launch notification.
+        // Recover even though the player state itself has not changed.
         let menu = app.mainMenu!
         precondition(menu.items.dropFirst().map(\.title) == ["Playback", "Audio"])
         let playback = menu.item(withTitle: "Playback")!.submenu!

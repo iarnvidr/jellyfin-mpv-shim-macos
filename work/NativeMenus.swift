@@ -10,6 +10,7 @@ final class PlayerMenuBar: NSObject, NSMenuDelegate {
     private var tracking = 0
     private var pending: [String: Any]?
     private var lastModel: Data?
+    private var installedMenu: NSMenu?
 
     init(perform: @escaping (String) -> Void, quit: @escaping () -> Void) {
         self.perform = perform
@@ -62,7 +63,8 @@ final class PlayerMenuBar: NSObject, NSMenuDelegate {
     func update(_ model: [String: Any]) {
         // Never replace a menu under the pointer while the user is choosing.
         if tracking > 0 { pending = model; return }
-        guard let data = try? JSONSerialization.data(withJSONObject: model, options: [.sortedKeys]), data != lastModel else { return }
+        guard let data = try? JSONSerialization.data(withJSONObject: model, options: [.sortedKeys]) else { return }
+        if data == lastModel && NSApp.mainMenu === installedMenu { return }
         lastModel = data
         let bar = NSMenu()
         let appItem = NSMenuItem()
@@ -96,6 +98,7 @@ final class PlayerMenuBar: NSObject, NSMenuDelegate {
             if title == "Help" { NSApp.helpMenu = menu }
         }
         NSApp.mainMenu = bar
+        installedMenu = bar
         if let path = ProcessInfo.processInfo.environment["JELLYFIN_PLAYER_MENU_DIAGNOSTICS"] {
             // The distribution smoke test inspects the actual installed AppKit
             // menus in both processes, without requiring Accessibility access.
