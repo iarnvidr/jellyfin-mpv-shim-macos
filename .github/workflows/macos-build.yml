@@ -20,7 +20,7 @@ jobs:
         run: test "$(uname -m)" = arm64
       - name: Verify native menu actions and keyboard equivalents
         run: |
-          xcrun swiftc work/NativeMenus.swift work/NativeSettings.swift tests/native/VerifyNativeMenus.swift -o /tmp/verify-native-menus -framework AppKit
+          xcrun swiftc work/NativeMenus.swift work/NativeSettings.swift work/NativeMedia.swift tests/native/VerifyNativeMenus.swift -o /tmp/verify-native-menus -framework AppKit -framework MediaPlayer
           /tmp/verify-native-menus
           xcrun clang -fobjc-arc tests/native/VerifyNativeControls.m -o /tmp/verify-native-controls -framework Cocoa
           /tmp/verify-native-controls

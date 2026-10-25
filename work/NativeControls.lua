@@ -79,8 +79,23 @@
         end
         local controls = {}
         local modal = modal_active()
+        local menu = active_menu()
         for index, n in ipairs(state.nodes or {}) do
-            if visible(n) and (not modal or n.mod) then
+            if n == menu then
+                -- Menu nodes have row geometry (rh), not a rectangle height.
+                -- Passing one to visible() aborts the renderer's event loop.
+                local geometry = menu_geometry(n)
+                for option, label in ipairs(n.items) do
+                    local y = geometry.y + (option-1)*geometry.ih
+                    if y < state.h and y+geometry.ih > 0 then
+                        controls[#controls+1] = {id=n.id..':option:'..option, control=n.id,
+                            role='button', label=label, enabled=not n.dis, generation=generation,
+                            option=option-1, x=geometry.x, y=math.max(0,y), w=geometry.w,
+                            h=math.min(state.h,y+geometry.ih)-math.max(0,y),
+                            focused=state.nav == n.id and state.nav_pidx == option-1}
+                    end
+                end
+            elseif not menu and n.w and n.h and visible(n) and (not modal or n.mod) then
                 local role = n.t == 'textbox' and 'text' or n.t == 'slider' and 'slider'
                     or n.t == 'checkbox' and 'checkbox' or n.t == 'dropdown' and 'popup'
                     or n.click and 'button' or n.t == 'text' and 'label'
@@ -124,7 +139,15 @@
         local action = utils.parse_json(json)
         if not action or action.generation ~= generation or state.scene ~= last_scene then return end
         local n = state.byid[action.control or action.id]
-        if not n or n.dis or not visible(n) or (modal_active() and not n.mod) then return end
+        if not n or n.dis then return end
+        if n.t == 'menu' then
+            if n == active_menu() and action.action == 'press' and type(action.option) == 'number'
+                and action.option % 1 == 0 and n.items[action.option+1] then
+                dismiss_menu(action.option)
+            end
+            return
+        end
+        if active_menu() or not n.w or not n.h or not visible(n) or (modal_active() and not n.mod) then return end
         if action.action == 'focus' then
             if n.t == 'textbox' then focus_textbox(n) else nav_set(n) end
         elseif action.action == 'set' and n.t == 'textbox' and type(action.value) == 'string' then

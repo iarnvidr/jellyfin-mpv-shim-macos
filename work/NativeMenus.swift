@@ -190,6 +190,7 @@ final class NativeMenuSession {
     private var polling = false
     private var bar: PlayerMenuBar!
     private var settings: NativeSettings?
+    private var media: NativeMedia?
     private let isHost: Bool
     var isTracking: Bool { bar.isTracking }
 
@@ -197,6 +198,11 @@ final class NativeMenuSession {
         self.lock = lock
         self.corePID = corePID
         self.isHost = isHost
+        if isHost {
+            media = NativeMedia { [weak self] command in
+                self?.request(command) { [weak self] _ in self?.refresh() }
+            }
+        }
         bar = PlayerMenuBar(perform: { [weak self] command in
             if command == "settings" { self?.openSettings(); return }
             self?.request(command) { result in
@@ -233,7 +239,10 @@ final class NativeMenuSession {
         request("state") { [weak self] result in
             guard let self = self else { return }
             self.polling = false
-            if let result = result, result["ready"] as? Bool == true { self.bar.update(result) }
+            if var result = result, result["ready"] as? Bool == true {
+                self.media?.update(result.removeValue(forKey: "now_playing") as? [String: Any] ?? [:])
+                self.bar.update(result)
+            }
             else { self.bar.unavailable() }
         }
     }

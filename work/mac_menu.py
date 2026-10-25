@@ -1,6 +1,8 @@
 """Native menu model and allowlisted actions, using the existing player handlers."""
 import sys
+import math
 from mac_volume import MAX_VOLUME
+from mac_media import snapshot as media_snapshot
 
 
 class NativeMenus:
@@ -132,7 +134,18 @@ class NativeMenus:
         application = [
             item('Settings…', 'settings', lambda: ui._open_settings('general'), enabled=ready, key=','),
             item('Check for Updates…', 'updates', self.updater, enabled=ready)]
-        return dict(ready=ready, application=application, menus=menus)
+        commands = {}
+        for verb, action, enabled in [
+                ('play', lambda: pm.set_paused(False), media),
+                ('pause', lambda: pm.set_paused(True), media),
+                ('toggle', pm.toggle_pause, media), ('stop', pm.stop_to_browser, media),
+                ('next', pm.play_next, media and state.get('queue', {}).get('has_next', False)),
+                ('previous', pm.play_prev, media and state.get('queue', {}).get('has_prev', False)),
+                ('forward', lambda: pm.seek(10), media), ('back', lambda: pm.seek(-10), media)]:
+            if enabled:
+                commands[verb] = item('', 'system-' + verb, action, playback=True)['command']
+        return dict(ready=ready, application=application, menus=menus,
+                    now_playing=media_snapshot(pm, media, epoch, commands))
 
     def request(self, command):
         if command in ('settings-state', 'settings-relocation-state') or command.startswith('settings-set:'):
@@ -141,6 +154,21 @@ class NativeMenus:
         model = self.model()
         if command == 'state':
             return model
+        prefix = str(self.player._play_epoch) + ':system-seek:'
+        if command.startswith(prefix) and model.get('now_playing', {}).get('active'):
+            try:
+                position = float(command[len(prefix):])
+                duration = model['now_playing']['duration']
+                if not math.isfinite(position) or not 0 <= position <= duration or duration <= 0:
+                    return {'ok': False}
+            except ValueError:
+                return {'ok': False}
+            epoch = self.player._play_epoch
+            def seek():
+                if self.player._play_epoch == epoch:
+                    self.player.seek(position, absolute=True)
+            self.player.put_task(seek)
+            return {'ok': True}
         action = self.actions.get(command)
         if action is None:
             return {'ok': False}

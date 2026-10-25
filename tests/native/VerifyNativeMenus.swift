@@ -1,4 +1,5 @@
 import AppKit
+import MediaPlayer
 
 @main
 struct VerifyNativeMenus {
@@ -62,6 +63,27 @@ struct VerifyNativeMenus {
         precondition(requests.last!.hasPrefix("settings-set:"))
         precondition(preferences.window?.windowController === preferences)
         preferences.close()
+        let icon = NSImage(size: NSSize(width: 64, height: 64))
+        icon.lockFocus()
+        NSColor.purple.setFill()
+        NSRect(x: 0, y: 0, width: 64, height: 64).fill()
+        icon.unlockFocus()
+        var systemCommands: [String] = []
+        let media = NativeMedia(icon: icon) { systemCommands.append($0) }
+        media.update(["active": true, "epoch": "7", "title": "Monk", "duration": 120.0,
+                      "position": 30.0, "rate": 1.0, "paused": false,
+                      "commands": ["play": "7:system-play", "pause": "7:system-pause"]])
+        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo!
+        precondition(info[MPMediaItemPropertyTitle] as? String == "Monk")
+        let artwork = info[MPMediaItemPropertyArtwork] as! MPMediaItemArtwork
+        precondition(artwork.image(at: icon.size)?.tiffRepresentation == icon.tiffRepresentation)
+        precondition(media.dispatch("pause") == .success && systemCommands.last == "7:system-pause")
+        precondition(media.dispatch("seek", position: 40) == .success && systemCommands.last == "7:system-seek:40.0")
+        precondition(media.dispatch("seek", position: 121) == .commandFailed)
+        media.update(["active": false])
+        precondition(MPNowPlayingInfoCenter.default().nowPlayingInfo == nil)
+        precondition(media.dispatch("play") == .commandFailed)
+        print("Native Now Playing: supplied artwork, real title, system commands, seek bounds and stop cleanup passed")
         print("Native Settings: native controls, persisted values, enum selection and save transport passed")
         print("Native AppKit menus: actions, shortcuts, selection and tracking passed")
     }

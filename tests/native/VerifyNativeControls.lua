@@ -23,7 +23,23 @@ local function verify()
     function request_render() end
     function compute_geo() end
     function modal_active() return state.modal end
-    function visible(node) return not node.hidden end
+    function active_menu()
+        if state.menu_hidden then return nil end
+        for _, n in ipairs(state.nodes) do if n.t == 'menu' then return n end end
+    end
+    function menu_geometry(node)
+        local height = #node.items*node.rh
+        return {x=node.x, y=math.max(0, math.min(node.y, state.h-height)), w=node.w, ih=node.rh}
+    end
+    function dismiss_menu(index)
+        local menu = active_menu()
+        state.menu_hidden = true
+        events[#events+1] = {t='select', id=menu.id, index=index, value=menu.items[index+1]}
+    end
+    function visible(node)
+        return not node.hidden and node.x < state.w and node.y < state.h
+            and node.x + node.w > 0 and node.y + node.h > 0
+    end
     function eff(node) return node.x, node.y end
     function dd_state(node) return {sel=node.sel or 0} end
     function focus_textbox(node) state.focus=node.id end
@@ -91,7 +107,22 @@ local function verify()
     state.modal = true
     action({id='play', action='press', generation=generation+1})
     assert(#events == count, 'An action escaped behind a modal')
-    print('Renderer: Undo/Redo, selection, password protection, activation, sliders, dropdowns and stale/modal action rejection passed')
+    state.modal = false
+    local gear = node('hud-menu', 'menu', {items={'Playback Speed', 'Aspect Ratio'}, rh=38})
+    gear.h = nil -- Actual Menu nodes have a row height, not a rectangle height.
+    timers[1]()
+    model = properties['user-data/jellyfin-accessibility']
+    assert(#model.nodes == 2 and model.nodes[1].label == 'Playback Speed')
+    assert(model.nodes[2].y-model.nodes[1].y == gear.rh)
+    count = #events
+    action({id='play', action='press', generation=generation+1})
+    assert(#events == count, 'An action escaped behind the gear menu')
+    action({id='hud-menu:option:2', control='hud-menu', option=1, action='press', generation=generation+1})
+    assert(events[#events].id == 'hud-menu' and events[#events].value == 'Aspect Ratio')
+    assert(state.menu_hidden)
+    timers[1]()
+    assert(#properties['user-data/jellyfin-accessibility'].nodes > 2, 'Controls did not recover after closing the gear menu')
+    print('Renderer: editing, protected fields, guarded actions, gear menu opening/selection and control recovery passed')
 end
 local ok, error = pcall(verify)
 mp = engine

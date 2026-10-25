@@ -204,8 +204,8 @@ def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid, ev
 def verify_native_settings_and_accessibility(host_pid, owner_pid, evidence):
     command = run(['/bin/ps', '-ww', '-p', str(owner_pid), '-o', 'command='], timeout=5).stdout
     endpoint = re.search(r'--input-ipc-server=([^\s]+)', command)[1]
-    if ipc_property(endpoint, 'input-media-keys') is not True:
-        raise RuntimeError('the installed player did not enable system media-key handling')
+    if ipc_property(endpoint, 'input-media-keys') is not False:
+        raise RuntimeError('mpv is still competing with Jellyfin for system media ownership')
     if ipc_property(endpoint, 'volume-max') != 200:
         raise RuntimeError('the installed player did not configure the 200% mixer range')
     previous_volume = ipc_property(endpoint, 'volume')
@@ -237,9 +237,12 @@ def verify_native_settings_and_accessibility(host_pid, owner_pid, evidence):
         time.sleep(.2)
     else:
         raise RuntimeError('the installed app did not open its schema-backed native Settings window')
+    media = json.loads((evidence / 'native-menus/now-playing-host.json').read_text())
+    if media.get('pid') != host_pid or media.get('bundle') != 'org.jellyfin.mpvshim.local':
+        raise RuntimeError('Now Playing is not owned by the outer Jellyfin app')
     return {'name': 'installed native Settings and browser accessibility children', 'passed': True,
             'settings': settings, 'accessibility': native, 'system_media_keys': True,
-            'maximum_volume': 200, 'boost_roundtrip': True}
+            'maximum_volume': 200, 'boost_roundtrip': True, 'now_playing_owner': media}
 
 
 def verify_legacy_conflict(root, app, env, base, probe_bin, evidence):
@@ -305,6 +308,40 @@ def verify_legacy_conflict(root, app, env, base, probe_bin, evidence):
     return reports
 
 
+def verify_gear_menu(endpoint, evidence):
+    from jellyfin_mpv_shim.mpvtk.widgets import Button, Menu, Stack
+    from jellyfin_mpv_shim.mpvtk.layout import layout
+    # Use the real widget layout: Menu has rh but deliberately has no h.
+    tree = Stack([Button('Settings', id='smoke-gear', on_click=lambda: None),
+                  Menu('smoke-gear-menu', ['Playback Speed', 'Aspect Ratio'], x=20, y=20)])
+    nodes, _ = layout(tree, 800, 600)
+    ipc_command(endpoint, ['script-message', 'mpvtk-active', 'yes'])
+    ipc_command(endpoint, ['script-message', 'mpvtk-scene', json.dumps(dict(v=1, w=800, h=600, nodes=nodes))])
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        model = ipc_property(endpoint, 'user-data/jellyfin-accessibility') or {}
+        rows = [n for n in model.get('nodes', []) if n.get('control') == 'smoke-gear-menu']
+        if len(rows) == 2:
+            break
+        time.sleep(.1)
+    else:
+        raise RuntimeError('opening the gear menu killed the complete renderer; see gpu-playback.log')
+    selected = rows[1]
+    ipc_command(endpoint, ['script-message', 'jellyfin-accessibility-action', json.dumps(dict(
+        id=selected['id'], control=selected['control'], option=selected['option'],
+        generation=selected['generation'], action='press'))])
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        restored = ipc_property(endpoint, 'user-data/jellyfin-accessibility') or {}
+        if any(n.get('id') == 'smoke-gear' for n in restored.get('nodes', [])):
+            break
+        time.sleep(.1)
+    else:
+        raise RuntimeError('player controls did not survive gear-menu selection')
+    (evidence / 'gear-menu.json').write_text(json.dumps(dict(menu=rows, recovered=restored), indent=2) + '\n')
+    return {'name': 'complete renderer survives gear menu opening, selection and return to controls', 'passed': True}
+
+
 def verify_playback(player, env, evidence):
     # A finite Y4M clip exercises the demuxer/decoder without a network service,
     # ffmpeg executable, audio device, or third-party test dependency.
@@ -318,12 +355,16 @@ def verify_playback(player, env, evidence):
                 output.write(bytes([16 + frame]) * (160 * 90))
                 output.write(bytes([128]) * (160 * 90 // 2))
         endpoint = fixture / 'mpv.sock'
+        renderers = list((TEMP_HOME / 'Library/Caches/Jellyfin MPV Shim/Mac').glob('renderer-*.lua'))
+        if len(renderers) != 1:
+            raise RuntimeError('could not locate the installed app renderer for the gear-menu regression check')
         with (evidence / 'mpv.log').open('w') as log:
             process = subprocess.Popen([
                 str(player), '--no-config', '--no-terminal', '--force-window=yes', '--title=Jellyfin Player',
                 '--vo=gpu-next', '--gpu-api=vulkan', '--gpu-context=macvk', '--ao=null',
                 f'--log-file={evidence / "gpu-playback.log"}',
                 '--loop-file=inf', f'--input-ipc-server={endpoint}', str(video),
+                f'--script={renderers[0]}',
             ], env=env, stdout=log, stderr=subprocess.STDOUT)
             try:
                 deadline = time.monotonic() + 60
@@ -344,9 +385,10 @@ def verify_playback(player, env, evidence):
                                 if not isinstance(identity, dict) or identity.get('name') != 'Jellyfin Player' or identity.get('iconMatchesJellyfin') is not True:
                                     time.sleep(0.2)
                                     continue
+                                gear = verify_gear_menu(endpoint, evidence)
                                 return {'name': 'bundled mpv decodes video and advances playback',
                                         'passed': True, 'videoParams': params, 'timePositions': [first, second],
-                                        'videoOutput': vo, 'runtimeBranding': identity}
+                                        'videoOutput': vo, 'runtimeBranding': identity, 'gear_menu': gear}
                     except (OSError, ValueError):
                         pass
                     time.sleep(0.2)
