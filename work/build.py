@@ -105,7 +105,7 @@ for binary in (app/'Contents/Frameworks/Sparkle.framework').rglob('*'):
   if match and str(app) in match.group(1):
    subprocess.run([install_name_tool,'-change',match.group(1),'@rpath/'+Path(match.group(1)).name,str(binary)],check=True)
 
-for n in ['launch.py','mac_update.py','mac_menu.py','mac_settings.py','NativeControls.lua','local_compat.py','player_runtime.py','mac_single_instance.py','startup.py']:
+for n in ['launch.py','mac_update.py','mac_menu.py','mac_settings.py','mac_volume.py','NativeControls.lua','local_compat.py','player_runtime.py','mac_single_instance.py','startup.py']:
  if (WORK/n).exists(): shutil.copy2(WORK/n,support/n)
 shutil.copy2(WORK/'source/jellyfin.icns',support/'jellyfin.icns'); (app/'Contents/Frameworks/mac_support').symlink_to('../Resources/mac_support')
 helper=app/'Contents/Helpers/Mac Updater.app/Contents'; helper.joinpath('MacOS').mkdir(parents=True,exist_ok=True); shutil.copy2(WORK/'Mac Updater',helper/'MacOS/Mac Updater')

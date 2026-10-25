@@ -1,5 +1,6 @@
 """Native menu model and allowlisted actions, using the existing player handlers."""
 import sys
+from mac_volume import MAX_VOLUME
 
 
 class NativeMenus:
@@ -24,6 +25,7 @@ class NativeMenus:
         ready = ui._browser is not None
         state = pm.osc_bridge.build_state() if ready else {}
         media = bool(state.get('has_media'))
+        volume = pm.get_volume(True) if media else 100
         engine = pm._player if ready else None
         try:
             editing = engine.command('get_property', 'user-data/jellyfin-native-edit') or {}
@@ -92,12 +94,17 @@ class NativeMenus:
                 item('Previous Chapter', 'chapter-back', lambda: pm.chapter_seek(-1), enabled=media, playback=True),
                 item('Next Chapter', 'chapter-next', lambda: pm.chapter_seek(1), enabled=media, playback=True)]),
             dict(title='Audio', items=[
-                item('Increase Volume', 'volume-up', lambda: pm.set_volume(min(100, pm.get_volume(True) + 5)),
+                item('Increase Volume', 'volume-up', lambda: pm.set_volume(min(MAX_VOLUME, pm.get_volume(True) + 5)),
                      enabled=media, key='\uf700', playback=True),
                 item('Decrease Volume', 'volume-down', lambda: pm.set_volume(max(0, pm.get_volume(True) - 5)),
                      enabled=media, key='\uf701', playback=True),
                 item('Mute', 'mute', lambda: pm.set_mute(not engine.mute), enabled=media,
                      checked=engine.mute if engine else False, playback=True),
+                dict(title='Volume', items=[
+                    item(f'{level}%' + (' (Normal)' if level == 100 else ''),
+                         f'volume-{level}', lambda level=level: pm.set_volume(level),
+                         enabled=media, checked=volume == level, playback=True)
+                    for level in (50, 75, 100, 125, 150, 175, MAX_VOLUME)]),
                 {}, choice('Audio Track', state.get('audio', []), 'set-audio')]),
             dict(title='Subtitles', items=[
                 choice('Subtitle Track', state.get('subtitles', []), 'set-sub'),

@@ -45,3 +45,12 @@ class VolumePersistence(unittest.TestCase):
         self.manager._player = SimpleNamespace(volume='invalid')
         with self.assertRaises(ValueError):
             self.manager._maybe_save_volume()
+
+    def test_boost_is_saved_for_video_and_music_without_reducing_it_to_100(self):
+        self.manager._player = SimpleNamespace(volume=200)
+        self.manager._maybe_save_volume()
+        self.assertEqual(self.settings.video_volume, 200)
+        self.manager._current_is_audio.return_value = True
+        self.manager._player.volume = 175
+        self.manager._maybe_save_volume()
+        self.assertEqual(self.settings.music_volume, 175)
