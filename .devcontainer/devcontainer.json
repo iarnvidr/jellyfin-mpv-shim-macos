@@ -1,0 +1,11 @@
+{
+  "name": "Jellyfin Player development",
+  "image": "ginnungagap/agent-dev:c79b8455a4e906c2",
+  "remoteUser": "node",
+  "containerEnv": {
+    "UV_CACHE_DIR": "/tmp/uv-cache",
+    "UV_PROJECT_ENVIRONMENT": "/tmp/jellyfin-venv"
+  },
+  "runArgs": ["--cpus=4", "--memory=8g", "--pids-limit=512", "--cap-drop=ALL", "--security-opt=no-new-privileges"],
+  "postCreateCommand": "uvx --from uv==0.13.1 uv sync --locked --all-groups"
+}

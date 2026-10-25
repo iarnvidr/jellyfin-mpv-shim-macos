@@ -25,6 +25,12 @@ class NativeMenus:
         state = pm.osc_bridge.build_state() if ready else {}
         media = bool(state.get('has_media'))
         engine = pm._player if ready else None
+        try:
+            editing = engine.command('get_property', 'user-data/jellyfin-native-edit') or {}
+        except Exception:
+            editing = {}
+        if not isinstance(editing, dict):
+            editing = {}
         epoch = str(pm._play_epoch)
 
         def item(title, command, action, *, enabled=True, key='', modifiers=None,
@@ -48,10 +54,14 @@ class NativeMenus:
                      enabled=media, checked=option.get('selected', False), playback=True)
                 for option in options])
 
-        def edit(title, key):
+        def edit(title, key, operation, allowed='focused', modifiers=None):
             return item(title, 'edit-' + key,
-                        lambda: engine.command('keypress', 'ctrl+' + key),
-                        enabled=ready, key=key)
+                        lambda: engine.command('script-message', 'jellyfin-native-edit', operation),
+                        enabled=ready and editing.get(allowed, False), key=key, modifiers=modifiers)
+
+        def close_window():
+            pm.stop_for_window_close()
+            engine.command('set_property', 'user-data/jellyfin-window-action', {'action': 'close'})
 
         def property_toggle(name):
             setattr(engine, name, not getattr(engine, name))
@@ -60,9 +70,11 @@ class NativeMenus:
             dict(title='File', items=[
                 item('Show Library', 'library', ui.activate, enabled=ready, key='l'),
                 item('Manage Servers…', 'servers', lambda: ui._open_settings('servers'), enabled=ready),
-                item('Close Window', 'close', ui._quit, enabled=ready, key='w')]),
-            dict(title='Edit', items=[edit('Cut', 'x'), edit('Copy', 'c'),
-                                      edit('Paste', 'v'), edit('Select All', 'a')]),
+                item('Close Window', 'close', close_window, enabled=ready, key='w')]),
+            dict(title='Edit', items=[edit('Undo', 'z', 'UNDO', 'undo'),
+                                      edit('Redo', 'Z', 'REDO', 'redo', ['command', 'shift']), {},
+                                      edit('Cut', 'x', 'CUT', 'selection'), edit('Copy', 'c', 'CTRLC', 'selection'),
+                                      edit('Paste', 'v', 'PASTE'), edit('Select All', 'a', 'CTRLA')]),
             dict(title='Playback', items=[
                 item('Play' if not media or pm.is_paused() else 'Pause', 'pause', pm.toggle_pause,
                      enabled=media, key='p', playback=True),
@@ -74,9 +86,9 @@ class NativeMenus:
                      enabled=media and state.get('queue', {}).get('has_next', False), playback=True),
                 {},
                 item('Skip Back 10 Seconds', 'seek-back', lambda: pm.seek(-10),
-                     enabled=media, key='\uf702', playback=True),
+                     enabled=media and not editing.get('focused'), key='\uf702', playback=True),
                 item('Skip Forward 10 Seconds', 'seek-forward', lambda: pm.seek(10),
-                     enabled=media, key='\uf703', playback=True),
+                     enabled=media and not editing.get('focused'), key='\uf703', playback=True),
                 item('Previous Chapter', 'chapter-back', lambda: pm.chapter_seek(-1), enabled=media, playback=True),
                 item('Next Chapter', 'chapter-next', lambda: pm.chapter_seek(1), enabled=media, playback=True)]),
             dict(title='Audio', items=[
@@ -105,6 +117,8 @@ class NativeMenus:
                 item('Playback Information', 'stats', pm.toggle_stats, enabled=media, key='i', playback=True)]),
             dict(title='Window', items=[
                 item('Minimize', 'minimize', lambda: setattr(engine, 'window_minimized', True), enabled=ready, key='m'),
+                item('Zoom', 'zoom', lambda: engine.command('set_property', 'user-data/jellyfin-window-action', {'action': 'zoom'}), enabled=ready),
+                item('Bring All to Front', 'front', ui.on_second_launch, enabled=ready),
                 item('Show Player', 'show', ui.on_second_launch, enabled=ready)]),
             dict(title='Help', items=[
                 item('View Logs', 'logs', lambda: ui._open_settings('logs'), enabled=ready)])]
@@ -114,6 +128,9 @@ class NativeMenus:
         return dict(ready=ready, application=application, menus=menus)
 
     def request(self, command):
+        if command in ('settings-state', 'settings-relocation-state') or command.startswith('settings-set:'):
+            from mac_settings import request
+            return request(command, self.ui._browser, self.player)
         model = self.model()
         if command == 'state':
             return model

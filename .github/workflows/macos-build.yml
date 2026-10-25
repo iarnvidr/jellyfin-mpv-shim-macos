@@ -6,6 +6,9 @@ on:
     branches: [main]
 permissions:
   contents: read
+concurrency:
+  group: macos-build-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: macos-15
@@ -17,8 +20,10 @@ jobs:
         run: test "$(uname -m)" = arm64
       - name: Verify native menu actions and keyboard equivalents
         run: |
-          xcrun swiftc work/NativeMenus.swift tests/native/VerifyNativeMenus.swift -o /tmp/verify-native-menus -framework AppKit
+          xcrun swiftc work/NativeMenus.swift work/NativeSettings.swift tests/native/VerifyNativeMenus.swift -o /tmp/verify-native-menus -framework AppKit
           /tmp/verify-native-menus
+          xcrun clang -fobjc-arc tests/native/VerifyNativeControls.m -o /tmp/verify-native-controls -framework Cocoa
+          /tmp/verify-native-controls
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.13.1'
@@ -38,7 +43,11 @@ jobs:
           SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
         run: uv run --locked python work/build.py
       - name: Package and verify
-        run: uv run --locked python work/package.py
+        # Exercise the renderer bridge with the actual bundled Lua runtime.
+        # This also catches LuaJIT/local-variable compatibility regressions.
+        run: |
+          work/mpv-release/mpv.app/Contents/MacOS/mpv --no-config --idle=yes --vo=null --ao=null --script=tests/native/VerifyNativeControls.lua
+          uv run --locked python work/package.py
       - name: Verify extracted DMG and update ZIP with native windows and playback
         run: uv run --locked python scripts/distribution_check.py
       - name: Upload native smoke evidence

@@ -12,9 +12,13 @@ Jellyfin Player uses the Dock and Command-Tab. If another installed version hold
 
 Use the native macOS menu bar for playback, audio tracks, subtitles, video options, and window controls. **Jellyfin Player → Settings…** (Command-comma) opens settings, and **Check for Updates…** opens Sparkle. The player's right-click and Control-click menus are removed.
 
+Settings uses native macOS controls. Command-W and the red close button stop playback and close the player window while keeping the app in the Dock; click its Dock icon or choose Show Player to reopen it. Command-Q quits the app. Browser text fields support Command-Z/Shift-Command-Z, clipboard commands, Command-arrow line navigation, and Option-arrow word navigation. The custom browser exposes visible controls through macOS Accessibility, including protected password fields.
+
 Sparkle checks the repository's GitHub-hosted appcast and downloads complete app updates from GitHub Releases. The feed includes version 0.2.3, which passed native CI checks for legacy installation and current-host automatic installation and relaunch. Feed publication requires both checks to pass for each new release.
 
 ## Build and checks (maintainers)
+
+For Linux development, open this repository in its `.devcontainer` configuration. It installs the pinned Python/uv environment; run `/tmp/jellyfin-venv/bin/python -m unittest discover -s tests -q` and `/tmp/jellyfin-venv/bin/python scripts/check.py`. Native AppKit compilation and packaged app checks run on the macOS GitHub Actions runner.
 
 Build on Apple Silicon macOS 15.7.9 or later with Xcode command-line tools and the repository's pinned uv/Python toolchain. No Homebrew or other package manager is used or required at any stage. From the repository root:
 

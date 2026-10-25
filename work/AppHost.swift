@@ -11,6 +11,7 @@ final class AppHost: NSObject, NSApplicationDelegate {
     private var stopping = false
     private var signals: [DispatchSourceSignal] = []
     private var menus: NativeMenuSession?
+    private var playerClosed = false
     private let arguments = Array(CommandLine.arguments.dropFirst())
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -46,12 +47,14 @@ final class AppHost: NSObject, NSApplicationDelegate {
             alert.runModal()
             NSApp.terminate(nil)
         }
-        for number in [SIGTERM, SIGINT, SIGUSR1, SIGUSR2] {
+        for number in [SIGTERM, SIGINT, SIGUSR1, SIGUSR2, SIGURG, SIGWINCH] {
             signal(number, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
             source.setEventHandler {
                 if number == SIGUSR1 { NSApp.hide(nil) }
-                else if number == SIGUSR2 { NSApp.unhideWithoutActivation() }
+                else if number == SIGUSR2 { self.playerClosed = false; NSApp.unhideWithoutActivation() }
+                else if number == SIGWINCH { self.playerClosed = true }
+                else if number == SIGURG { self.menus?.openSettings() }
                 else { NSApp.terminate(nil) }
             }
             source.resume()
@@ -78,6 +81,7 @@ final class AppHost: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        playerClosed = false
         NSApp.unhide(nil)
         showPlayer()
         return false
@@ -87,7 +91,7 @@ final class AppHost: NSObject, NSApplicationDelegate {
         // Hiding the child can briefly activate the host. Let its hide signal
         // arrive before deciding whether this was an intentional app switch.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            if NSApp.isActive && !NSApp.isHidden && self?.menus?.isTracking != true { self?.showPlayer() }
+            if NSApp.isActive && !NSApp.isHidden && self?.playerClosed == false && NSApp.keyWindow == nil && self?.menus?.isTracking != true { self?.showPlayer() }
         }
     }
 

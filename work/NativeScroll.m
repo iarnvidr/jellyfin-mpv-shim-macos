@@ -13,12 +13,130 @@ static dispatch_source_t reader;
 static dispatch_source_t retryTimer;
 static int socketFD = -1;
 static atomic_bool scrollEnabled = false;
+static atomic_bool textFocused = false;
 static NSString *socketPath;
 static NSMutableData *inputBuffer;
 static int gestureAxis = 0;
 static NSTimeInterval lastScrollTime = 0;
 static NSDictionary *branding;
 extern void JellyfinInstallNativeMenus(void);
+extern void JellyfinClosePlayerWindow(void);
+static void writeCommand(NSArray *command);
+
+@interface JellyfinWindowControls : NSObject
+- (void)closePlayer:(id)sender;
+@end
+@implementation JellyfinWindowControls
+- (void)closePlayer:(id)sender { JellyfinClosePlayerWindow(); }
+@end
+static JellyfinWindowControls *windowControls;
+
+@interface JellyfinAXElement : NSAccessibilityElement
+@property(nonatomic, copy) NSDictionary *model;
+@property(nonatomic, weak) NSView *view;
+@property(nonatomic) NSSize sceneSize;
+@end
+@implementation JellyfinAXElement
+- (BOOL)isAccessibilityEnabled { return [self.model[@"enabled"] boolValue]; }
+- (BOOL)isAccessibilityFocused { return [self.model[@"focused"] boolValue]; }
+- (NSRect)accessibilityFrame {
+    NSView *view = self.view;
+    if (!view.window || self.sceneSize.width <= 0 || self.sceneSize.height <= 0) return NSZeroRect;
+    CGFloat sx = view.bounds.size.width / self.sceneSize.width;
+    CGFloat sy = view.bounds.size.height / self.sceneSize.height;
+    NSRect rect = NSMakeRect([self.model[@"x"] doubleValue]*sx,
+        view.bounds.size.height-([self.model[@"y"] doubleValue]+[self.model[@"h"] doubleValue])*sy,
+        [self.model[@"w"] doubleValue]*sx, [self.model[@"h"] doubleValue]*sy);
+    return [view.window convertRectToScreen:[view convertRect:rect toView:nil]];
+}
+- (BOOL)sendAction:(NSString *)action value:(id)value {
+    if (!self.isAccessibilityEnabled) return NO;
+    NSMutableDictionary *message = [@{@"id": self.model[@"id"], @"action": action} mutableCopy];
+    for (NSString *key in @[@"generation", @"control", @"option"]) if (self.model[key]) message[key] = self.model[key];
+    if (value) message[@"value"] = value;
+    NSData *json = [NSJSONSerialization dataWithJSONObject:message options:0 error:nil];
+    NSString *text = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
+    dispatch_async(ioQueue, ^{ writeCommand(@[@"script-message", @"jellyfin-accessibility-action", text]); });
+    return YES;
+}
+- (BOOL)accessibilityPerformPress { return [self sendAction:@"press" value:nil]; }
+- (BOOL)accessibilityPerformIncrement { return [self sendAction:@"increment" value:nil]; }
+- (BOOL)accessibilityPerformDecrement { return [self sendAction:@"decrement" value:nil]; }
+- (void)setAccessibilityFocused:(BOOL)focused { if (focused) [self sendAction:@"focus" value:nil]; }
+- (void)setAccessibilityValue:(id)value { [self sendAction:@"set" value:value]; }
+- (id)accessibilityValue { return self.model[@"value"]; }
+- (BOOL)isAccessibilitySelectorAllowed:(SEL)selector {
+    NSString *role = self.model[@"role"];
+    if (selector == @selector(accessibilityPerformPress)) return ![role isEqualToString:@"label"] && ![role isEqualToString:@"slider"];
+    if (selector == @selector(accessibilityPerformIncrement) || selector == @selector(accessibilityPerformDecrement)) return [role isEqualToString:@"slider"];
+    if (selector == @selector(setAccessibilityValue:)) return [role isEqualToString:@"text"];
+    return [super isAccessibilitySelectorAllowed:selector];
+}
+@end
+
+@interface JellyfinAXView : NSView
+@property(nonatomic, copy) NSArray *elements;
+@end
+@implementation JellyfinAXView
+- (BOOL)isAccessibilityElement { return NO; }
+- (NSArray *)accessibilityChildren { return self.elements ?: @[]; }
+- (NSView *)hitTest:(NSPoint)point { return nil; }
+- (id)accessibilityHitTest:(NSPoint)point {
+    for (JellyfinAXElement *element in self.elements.reverseObjectEnumerator) {
+        if (NSPointInRect(point, element.accessibilityFrame)) return element;
+    }
+    return nil;
+}
+@end
+static JellyfinAXView *accessibilityView;
+
+static void updateAccessibility(NSDictionary *model) {
+    NSWindow *window = NSApp.mainWindow;
+    if (!window) for (NSWindow *candidate in NSApp.windows) {
+        if (candidate.canBecomeMainWindow) { window = candidate; break; }
+    }
+    NSView *content = window.contentView;
+    if (!content) return;
+    if (accessibilityView.superview != content) {
+        [accessibilityView removeFromSuperview];
+        accessibilityView = [[JellyfinAXView alloc] initWithFrame:content.bounds];
+        accessibilityView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        [content addSubview:accessibilityView];
+    }
+    NSMutableDictionary *previous = [NSMutableDictionary dictionary];
+    for (JellyfinAXElement *element in accessibilityView.elements) previous[element.model[@"id"]] = element;
+    NSMutableArray *elements = [NSMutableArray array];
+    NSDictionary *roles = @{@"text": NSAccessibilityTextFieldRole, @"slider": NSAccessibilitySliderRole,
+        @"checkbox": NSAccessibilityCheckBoxRole, @"popup": NSAccessibilityPopUpButtonRole,
+        @"button": NSAccessibilityButtonRole, @"label": NSAccessibilityStaticTextRole};
+    BOOL changed = NO;
+    for (NSDictionary *node in model[@"nodes"]) {
+        NSString *identifier = node[@"id"];
+        if (![identifier isKindOfClass:NSString.class]) continue;
+        JellyfinAXElement *element = previous[identifier];
+        if (!element) { element = [JellyfinAXElement new]; changed = YES; }
+        NSDictionary *old = element.model;
+        element.model = node;
+        element.view = accessibilityView;
+        element.sceneSize = NSMakeSize([model[@"w"] doubleValue], [model[@"h"] doubleValue]);
+        element.accessibilityParent = accessibilityView;
+        element.accessibilityRole = roles[node[@"role"]] ?: NSAccessibilityGroupRole;
+        element.accessibilitySubrole = [node[@"secure"] boolValue] ? NSAccessibilitySecureTextFieldSubrole : nil;
+        element.accessibilityLabel = node[@"label"];
+        element.accessibilityIdentifier = identifier;
+        if (old && (old[@"value"] || node[@"value"]) && ![old[@"value"] isEqual:node[@"value"]]) NSAccessibilityPostNotification(element, NSAccessibilityValueChangedNotification);
+        if ([node[@"focused"] boolValue] && ![old[@"focused"] boolValue]) NSAccessibilityPostNotification(element, NSAccessibilityFocusedUIElementChangedNotification);
+        [elements addObject:element];
+    }
+    changed = changed || elements.count != accessibilityView.elements.count;
+    accessibilityView.elements = elements;
+    if (changed) NSAccessibilityPostNotification(accessibilityView, NSAccessibilityLayoutChangedNotification);
+    if (NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_MENU_DIAGNOSTICS"]) {
+        NSDictionary *diagnostic = @{@"count": @(elements.count),
+            @"roles": [elements valueForKey:@"accessibilityRole"]};
+        dispatch_async(ioQueue, ^{ writeCommand(@[@"set_property", @"user-data/jellyfin-accessibility-native", diagnostic]); });
+    }
+}
 
 static void notifyAppHost(int signalNumber) {
     int host = [NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_HOST_PID"] intValue];
@@ -47,6 +165,12 @@ static void applyPlayerBranding(void) {
     if (icon) NSApp.applicationIconImage = icon;
     for (NSWindow *window in NSApp.windows) {
         if ([window.title isEqualToString:@"mpv"]) window.title = @"Jellyfin Player";
+        if (window.canBecomeMainWindow) {
+            if (!windowControls) windowControls = [JellyfinWindowControls new];
+            NSButton *close = [window standardWindowButton:NSWindowCloseButton];
+            close.target = windowControls;
+            close.action = @selector(closePlayer:);
+        }
     }
     NSData *expectedPixels = iconPixels(icon);
     NSData *actualPixels = iconPixels(NSApp.applicationIconImage);
@@ -143,6 +267,11 @@ static void connectSocket(void) {
                 id request = event[@"data"][@"request"] ?: @"";
                 dispatch_async(dispatch_get_main_queue(), ^{
                     if ([action isEqualToString:@"hide"]) [NSApp hide:nil];
+                    if ([action isEqualToString:@"close"]) {
+                        notifyAppHost(SIGWINCH);
+                        for (NSWindow *window in NSApp.windows) if (window.canBecomeMainWindow) [window orderOut:nil];
+                    }
+                    if ([action isEqualToString:@"zoom"]) [NSApp.mainWindow performZoom:nil];
                     if ([action isEqualToString:@"show"]) {
                         [NSApp unhide:nil];
                         [NSApp activateIgnoringOtherApps:YES];
@@ -158,6 +287,13 @@ static void connectSocket(void) {
                     }
                 });
             }
+            if ([event[@"id"] integerValue] == 9003 && [event[@"data"] isKindOfClass:NSDictionary.class]) {
+                atomic_store(&textFocused, [event[@"data"][@"focused"] boolValue]);
+            }
+            if ([event[@"id"] integerValue] == 9004 && [event[@"data"] isKindOfClass:NSDictionary.class]) {
+                NSDictionary *model = event[@"data"];
+                dispatch_async(dispatch_get_main_queue(), ^{ updateAccessibility(model); });
+            }
             [inputBuffer replaceBytesInRange:NSMakeRange(0, length + 1) withBytes:NULL length:0];
         }
         if (inputBuffer.length > 1024 * 1024) disconnectSocket();
@@ -165,6 +301,8 @@ static void connectSocket(void) {
     dispatch_resume(reader);
     writeCommand(@[@"observe_property", @9001, @"user-data/mpvtk-native-scroll"]);
     writeCommand(@[@"observe_property", @9002, @"user-data/jellyfin-window-action"]);
+    writeCommand(@[@"observe_property", @9003, @"user-data/jellyfin-native-edit"]);
+    writeCommand(@[@"observe_property", @9004, @"user-data/jellyfin-accessibility"]);
     writeCommand(@[@"set_property", @"user-data/mpvtk-native-scroll-loaded", @YES]);
     dispatch_async(dispatch_get_main_queue(), ^{
         applyPlayerBranding();
@@ -184,6 +322,10 @@ __attribute__((constructor)) static void installNativeScrolling(void) {
         [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidBecomeKeyNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
             NSWindow *window = note.object;
             if ([window.title isEqualToString:@"mpv"]) window.title = @"Jellyfin Player";
+            if (!windowControls) windowControls = [JellyfinWindowControls new];
+            NSButton *close = [window standardWindowButton:NSWindowCloseButton];
+            close.target = windowControls;
+            close.action = @selector(closePlayer:);
         }];
         NSArray<NSString *> *arguments = NSProcessInfo.processInfo.arguments;
         for (NSUInteger i = 0; i < arguments.count; i++) {
@@ -198,6 +340,22 @@ __attribute__((constructor)) static void installNativeScrolling(void) {
         dispatch_source_set_event_handler(retryTimer, ^{ connectSocket(); });
         dispatch_resume(retryTimer);
         dispatch_async(dispatch_get_main_queue(), ^{
+            [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
+                if (!atomic_load(&textFocused)) return event;
+                NSEventModifierFlags modifiers = event.modifierFlags;
+                BOOL command = (modifiers & NSEventModifierFlagCommand) != 0;
+                BOOL option = (modifiers & NSEventModifierFlagOption) != 0;
+                BOOL shift = (modifiers & NSEventModifierFlagShift) != 0;
+                NSString *operation = nil;
+                if (event.keyCode == 123) operation = command ? (shift ? @"SHOME" : @"HOME") : option ? (shift ? @"CSLEFT" : @"CLEFT") : nil;
+                if (event.keyCode == 124) operation = command ? (shift ? @"SEND" : @"END") : option ? (shift ? @"CSRIGHT" : @"CRIGHT") : nil;
+                if (event.keyCode == 51 && option) operation = @"CBS";
+                NSDictionary *editing = @{@"z": shift ? @"REDO" : @"UNDO", @"x": @"CUT", @"c": @"CTRLC", @"v": @"PASTE", @"a": @"CTRLA"};
+                if (command && editing[event.charactersIgnoringModifiers.lowercaseString]) operation = editing[event.charactersIgnoringModifiers.lowercaseString];
+                if (!operation) return event;
+                dispatch_async(ioQueue, ^{ writeCommand(@[@"script-message", @"jellyfin-native-edit", operation]); });
+                return nil;
+            }];
             // macOS uses the menu bar for these actions. Do not let either
             // mpvtk or mpv's fallback bindings open a right-click menu.
             [NSEvent addLocalMonitorForEventsMatchingMask:(NSEventMaskRightMouseDown | NSEventMaskRightMouseUp | NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp) handler:^NSEvent *(NSEvent *event) {
