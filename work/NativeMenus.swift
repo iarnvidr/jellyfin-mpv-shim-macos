@@ -139,8 +139,10 @@ final class PlayerMenuBar: NSObject, NSMenuDelegate {
                     "edit-Z": Selector(("redo:"))]
                 if let selector = selectors[command] { NSApp.sendAction(selector, to: editor, from: sender); return }
             }
-            if command == "close", let window = NSApp.keyWindow, window.windowController is NativeSettings {
-                window.performClose(sender); return
+            if let window = NSApp.keyWindow, window.windowController is NativeSettings {
+                if command == "close" { window.performClose(sender); return }
+                if command == "minimize" { window.performMiniaturize(sender); return }
+                if command == "zoom" { window.performZoom(sender); return }
             }
             perform(command)
         }

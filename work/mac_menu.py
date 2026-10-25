@@ -27,7 +27,7 @@ class NativeMenus:
         engine = pm._player if ready else None
         try:
             editing = engine.command('get_property', 'user-data/jellyfin-native-edit') or {}
-        except (AttributeError, TypeError, RuntimeError):
+        except Exception:
             editing = {}
         if not isinstance(editing, dict):
             editing = {}

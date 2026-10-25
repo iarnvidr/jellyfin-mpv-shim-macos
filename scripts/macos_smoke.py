@@ -202,6 +202,8 @@ def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid, ev
 def verify_native_settings_and_accessibility(host_pid, owner_pid, evidence):
     command = run(['/bin/ps', '-ww', '-p', str(owner_pid), '-o', 'command='], timeout=5).stdout
     endpoint = re.search(r'--input-ipc-server=([^\s]+)', command)[1]
+    if ipc_property(endpoint, 'input-media-keys') is not True:
+        raise RuntimeError('the installed player did not enable system media-key handling')
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         native = ipc_property(endpoint, 'user-data/jellyfin-accessibility-native')
@@ -224,7 +226,7 @@ def verify_native_settings_and_accessibility(host_pid, owner_pid, evidence):
     else:
         raise RuntimeError('the installed app did not open its schema-backed native Settings window')
     return {'name': 'installed native Settings and browser accessibility children', 'passed': True,
-            'settings': settings, 'accessibility': native}
+            'settings': settings, 'accessibility': native, 'system_media_keys': True}
 
 
 def verify_legacy_conflict(root, app, env, base, probe_bin, evidence):
