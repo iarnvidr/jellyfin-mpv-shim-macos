@@ -11,6 +11,7 @@ final class PlayerMenuBar: NSObject, NSMenuDelegate {
     private var pending: [String: Any]?
     private var lastModel: Data?
     private var installedMenu: NSMenu?
+    var isTracking: Bool { tracking > 0 }
 
     init(perform: @escaping (String) -> Void, quit: @escaping () -> Void) {
         self.perform = perform
@@ -161,6 +162,7 @@ final class NativeMenuSession {
     private var timer: Timer?
     private var polling = false
     private var bar: PlayerMenuBar!
+    var isTracking: Bool { bar.isTracking }
 
     init(lock: URL, corePID: Int, quit: @escaping () -> Void) {
         self.lock = lock

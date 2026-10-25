@@ -87,7 +87,7 @@ final class AppHost: NSObject, NSApplicationDelegate {
         // Hiding the child can briefly activate the host. Let its hide signal
         // arrive before deciding whether this was an intentional app switch.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            if NSApp.isActive && !NSApp.isHidden { self?.showPlayer() }
+            if NSApp.isActive && !NSApp.isHidden && self?.menus?.isTracking != true { self?.showPlayer() }
         }
     }
 
