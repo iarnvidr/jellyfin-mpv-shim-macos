@@ -131,7 +131,19 @@ final class PlayerMenuBar: NSObject, NSMenuDelegate {
     }
 
     @objc private func command(_ sender: NSMenuItem) {
-        if let command = sender.representedObject as? String { perform(command) }
+        if let command = sender.representedObject as? String {
+            if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+                let selectors: [String: Selector] = ["edit-x": #selector(NSText.cut(_:)),
+                    "edit-c": #selector(NSText.copy(_:)), "edit-v": #selector(NSText.paste(_:)),
+                    "edit-a": #selector(NSText.selectAll(_:)), "edit-z": Selector(("undo:")),
+                    "edit-Z": Selector(("redo:"))]
+                if let selector = selectors[command] { NSApp.sendAction(selector, to: editor, from: sender); return }
+            }
+            if command == "close", let window = NSApp.keyWindow, window.windowController is NativeSettings {
+                window.performClose(sender); return
+            }
+            perform(command)
+        }
     }
 
     @objc private func quitPlayer(_ sender: Any?) { quit() }
@@ -148,7 +160,20 @@ final class PlayerMenuBar: NSObject, NSMenuDelegate {
             app.hide()
         }
     }
-    func menuWillOpen(_ menu: NSMenu) { tracking += 1 }
+    func menuWillOpen(_ menu: NSMenu) {
+        tracking += 1
+        if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+            for item in menu.items {
+                guard let command = item.representedObject as? String, command.hasPrefix("edit-") else { continue }
+                switch command {
+                case "edit-z": item.isEnabled = editor.undoManager?.canUndo == true
+                case "edit-Z": item.isEnabled = editor.undoManager?.canRedo == true
+                case "edit-c", "edit-x": item.isEnabled = editor.selectedRange().length > 0
+                default: item.isEnabled = true
+                }
+            }
+        }
+    }
     func menuDidClose(_ menu: NSMenu) {
         tracking = max(0, tracking - 1)
         if tracking == 0, let model = pending { pending = nil; update(model) }
@@ -162,12 +187,16 @@ final class NativeMenuSession {
     private var timer: Timer?
     private var polling = false
     private var bar: PlayerMenuBar!
+    private var settings: NativeSettings?
+    private let isHost: Bool
     var isTracking: Bool { bar.isTracking }
 
-    init(lock: URL, corePID: Int, quit: @escaping () -> Void) {
+    init(lock: URL, corePID: Int, isHost: Bool = true, quit: @escaping () -> Void) {
         self.lock = lock
         self.corePID = corePID
+        self.isHost = isHost
         bar = PlayerMenuBar(perform: { [weak self] command in
+            if command == "settings" { self?.openSettings(); return }
             self?.request(command) { result in
                 if result?["ok"] as? Bool != true { NSSound.beep() }
                 self?.refresh()
@@ -180,6 +209,21 @@ final class NativeMenuSession {
     }
 
     deinit { timer?.invalidate() }
+
+    func openSettings() {
+        if !isHost {
+            if let host = ProcessInfo.processInfo.environment["JELLYFIN_PLAYER_HOST_PID"].flatMap(Int32.init), host > 1 { kill(host, SIGURG) }
+            return
+        }
+        if settings == nil {
+            settings = NativeSettings(request: { [weak self] command, completion in
+                self?.request(command, completion: completion)
+            })
+        }
+        settings?.open()
+    }
+
+    func closePlayerWindow() { request("close") { _ in } }
 
     private func refresh() {
         guard !polling else { return }
@@ -245,5 +289,8 @@ func installPlayerNativeMenus() {
     guard let path = env["JELLYFIN_PLAYER_MENU_LOCK"],
           let pid = env["JELLYFIN_PLAYER_CORE_PID"].flatMap(Int.init),
           let host = env["JELLYFIN_PLAYER_HOST_PID"].flatMap(Int32.init), host > 1 else { return }
-    playerMenuSession = NativeMenuSession(lock: URL(fileURLWithPath: path), corePID: pid) { kill(host, SIGTERM) }
+    playerMenuSession = NativeMenuSession(lock: URL(fileURLWithPath: path), corePID: pid, isHost: false) { kill(host, SIGTERM) }
 }
+
+@_cdecl("JellyfinClosePlayerWindow")
+func closePlayerWindow() { playerMenuSession?.closePlayerWindow() }

@@ -17,7 +17,7 @@ jobs:
         run: test "$(uname -m)" = arm64
       - name: Verify native menu actions and keyboard equivalents
         run: |
-          xcrun swiftc work/NativeMenus.swift tests/native/VerifyNativeMenus.swift -o /tmp/verify-native-menus -framework AppKit
+          xcrun swiftc work/NativeMenus.swift work/NativeSettings.swift tests/native/VerifyNativeMenus.swift -o /tmp/verify-native-menus -framework AppKit
           /tmp/verify-native-menus
       - uses: astral-sh/setup-uv@v6
         with:

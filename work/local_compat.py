@@ -57,7 +57,7 @@ end)
 
 '''
     text = text.replace('local function on_dbl()', native + 'local function on_dbl()', 1)
-    return text
+    return text + '\n' + Path(__file__).with_name('NativeControls.lua').read_text()
 
 
 def verify(package):
@@ -125,7 +125,7 @@ def apply(resources, package):
         import logging
         self.available = False
         self.ready.set()
-        logging.getLogger('tray').info('macOS uses the Jellyfin Player Dock icon; closing the window quits the app. Reopen it from Applications.')
+        logging.getLogger('tray').info('macOS uses the Jellyfin Player Dock icon. Reopen closed windows from the Dock.')
     tray.TrayManager.start = start_tray
     from jellyfin_mpv_shim import utils
     def get_resource(*parts):
@@ -135,6 +135,27 @@ def apply(resources, package):
     verify(package)
 
     from jellyfin_mpv_shim.mpvtk import app as renderer_app
+    original_layout = renderer_app.layout
+    def accessible_layout(*args, **kwargs):
+        nodes, handlers = original_layout(*args, **kwargs)
+        for node in nodes:
+            if not node.get('click'):
+                continue
+            callback = handlers.get(node['id'], {}).get('click')
+            # Poster captions are rasterized into an atlas. Their existing
+            # item callbacks retain the metadata that supplies those captions.
+            for value in getattr(callback, '__defaults__', ()) or ():
+                if isinstance(value, dict) and value.get('Name'):
+                    node['ax_label'] = value['Name']
+                    break
+            if not node.get('ax_label'):
+                labels = [n.get('text', '') for n in nodes if n['t'] == 'text'
+                          and n.get('sc') == node.get('sc')
+                          and node['x'] <= n['x'] < node['x'] + node['w']
+                          and node['y'] <= n['y'] < node['y'] + node['h']]
+                node['ax_label'] = node.get('tip') or ' '.join(filter(None, labels))
+        return nodes, handlers
+    renderer_app.layout = accessible_layout
     text = patch_renderer((package / 'mpvtk/renderer.lua').read_text())
     cache = Path.home() / 'Library/Caches/Jellyfin MPV Shim/Mac'
     cache.mkdir(parents=True, exist_ok=True)
@@ -188,6 +209,15 @@ def apply(resources, package):
     WindowMixin.window_chrome_state = chrome
 
     from jellyfin_mpv_shim.mpvtk_browser.app import MpvtkBrowser
+    from jellyfin_mpv_shim.mpvtk_browser.settings import SettingsMixin
+    original_settings = SettingsMixin.open_settings
+    def open_settings(self, tab='general'):
+        if tab in ('general', 'browse', 'playback'):
+            from mac_settings import open_settings as native_settings
+            native_settings()
+        else:
+            original_settings(self, tab)
+    SettingsMixin.open_settings = open_settings
     from jellyfin_mpv_shim.mpvtk import Box, Column, Row, Text, Button, scaling
     original_refresh = MpvtkBrowser.refresh_window_controls
     def refresh(self):

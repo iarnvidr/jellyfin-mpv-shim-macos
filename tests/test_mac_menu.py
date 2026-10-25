@@ -105,6 +105,22 @@ class NativeMenuTests(unittest.TestCase):
         queued.pop()()
         self.pm.osc_bridge.handle_action.assert_not_called()
 
+    def test_close_stops_playback_and_closes_window_without_quitting(self):
+        self.engine.command = Mock(return_value={})
+        self.menu.request('close')
+        self.pm.stop_for_window_close.assert_called_once_with()
+        self.engine.command.assert_called_with('set_property', 'user-data/jellyfin-window-action', {'action': 'close'})
+        self.ui._quit.assert_not_called()
+
+    def test_editing_disables_seek_shortcuts_and_routes_undo(self):
+        self.engine.command = Mock(return_value={'focused': True, 'undo': True, 'redo': False, 'selection': True})
+        rows = list(entries(self.menu.model()['menus']))
+        self.assertFalse(next(row for row in rows if row.get('title') == 'Skip Forward 10 Seconds')['enabled'])
+        self.assertFalse(next(row for row in rows if row.get('title') == 'Redo')['enabled'])
+        self.menu.request('edit-z')
+        self.engine.command.assert_called_with('script-message', 'jellyfin-native-edit', 'UNDO')
+        self.assertEqual(self.menu.request('edit-Z'), {'ok': False})
+
 
 if __name__ == '__main__':
     unittest.main()
