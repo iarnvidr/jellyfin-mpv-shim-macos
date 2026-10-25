@@ -8,6 +8,17 @@ class NativeMenus:
         self.actions = {}
 
     def model(self):
+        # Playback startup can hold this lock during server I/O. Native menu
+        # polling must not pile up blocked listener threads behind that work.
+        self.actions = {}
+        if not self.player._lock.acquire(blocking=False):
+            return {'ready': False, 'application': [], 'menus': []}
+        try:
+            return self._model()
+        finally:
+            self.player._lock.release()
+
+    def _model(self):
         pm, ui = self.player, self.ui
         self.actions = {}
         ready = ui._browser is not None
@@ -20,7 +31,13 @@ class NativeMenus:
                  checked=False, playback=False):
             command = (epoch + ':' + command) if playback else command
             if enabled:
-                self.actions[command] = action
+                if playback:
+                    def current_session(action=action):
+                        if str(pm._play_epoch) == epoch:
+                            action()
+                    self.actions[command] = current_session
+                else:
+                    self.actions[command] = action
             return dict(title=title, command=command, enabled=bool(enabled), key=key,
                         modifiers=modifiers or ['command'], checked=bool(checked))
 
@@ -47,7 +64,7 @@ class NativeMenus:
             dict(title='Edit', items=[edit('Cut', 'x'), edit('Copy', 'c'),
                                       edit('Paste', 'v'), edit('Select All', 'a')]),
             dict(title='Playback', items=[
-                item('Play' if media and pm.is_paused() else 'Pause', 'pause', pm.toggle_pause,
+                item('Play' if not media or pm.is_paused() else 'Pause', 'pause', pm.toggle_pause,
                      enabled=media, key='p', playback=True),
                 item('Stop', 'stop', pm.stop_to_browser, enabled=media, key='.', playback=True),
                 {},

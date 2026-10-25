@@ -109,6 +109,23 @@ final class PlayerMenuBar: NSObject, NSMenuDelegate {
         }
     }
 
+    func unavailable() {
+        guard let data = lastModel,
+              var model = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        func disable(_ entries: [[String: Any]]) -> [[String: Any]] {
+            entries.map { entry in
+                var item = entry
+                item["enabled"] = false
+                if let children = item["items"] as? [[String: Any]] { item["items"] = disable(children) }
+                return item
+            }
+        }
+        model["application"] = disable(model["application"] as? [[String: Any]] ?? [])
+        model["menus"] = disable(model["menus"] as? [[String: Any]] ?? [])
+        model["ready"] = false
+        update(model)
+    }
+
     @objc private func command(_ sender: NSMenuItem) {
         if let command = sender.representedObject as? String { perform(command) }
     }
@@ -166,7 +183,7 @@ final class NativeMenuSession {
             guard let self = self else { return }
             self.polling = false
             if let result = result, result["ready"] as? Bool == true { self.bar.update(result) }
-            else { self.bar.update(["application": [], "menus": []]) }
+            else { self.bar.unavailable() }
         }
     }
 

@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+import threading
 import unittest
 from unittest.mock import Mock
 
@@ -24,6 +25,7 @@ class NativeMenuTests(unittest.TestCase):
                           subtitles=[dict(id=-1, label='None', selected=False),
                                      dict(id=4, label='Danish', selected=True)])
         self.pm = Mock(_player=self.engine, _play_epoch=7)
+        self.pm._lock = threading.RLock()
         self.pm.osc_bridge.build_state.return_value = self.state
         self.pm.is_paused.return_value = False
         self.pm.get_volume.return_value = 98
@@ -77,6 +79,31 @@ class NativeMenuTests(unittest.TestCase):
         original = source.read_text()
         self.assertIn('state.mouse.down = true; on_rclick()', original)
         self.assertNotIn('state.mouse.down = true; on_rclick()', patch_renderer(original))
+
+    def test_loading_player_does_not_block_menu_polling_or_queue_stale_actions(self):
+        locked, release = threading.Event(), threading.Event()
+        def busy():
+            with self.pm._lock:
+                locked.set()
+                release.wait(5)
+        worker = threading.Thread(target=busy)
+        worker.start()
+        self.assertTrue(locked.wait(2))
+        try:
+            self.assertFalse(self.menu.model()['ready'])
+            self.assertEqual(self.menu.request('settings'), {'ok': False})
+            self.pm.put_task.assert_not_called()
+        finally:
+            release.set()
+            worker.join(2)
+
+    def test_track_action_cannot_cross_a_playback_change_while_queued(self):
+        queued = []
+        self.pm.put_task.side_effect = queued.append
+        self.menu.request(self.command('Danish'))
+        self.pm._play_epoch += 1
+        queued.pop()()
+        self.pm.osc_bridge.handle_action.assert_not_called()
 
 
 if __name__ == '__main__':
