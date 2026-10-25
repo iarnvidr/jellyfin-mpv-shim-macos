@@ -4,6 +4,10 @@ import math
 import os
 import signal
 import threading
+from pathlib import Path
+
+_relocation_lock = threading.Lock()
+_relocation = None
 
 
 def open_settings():
@@ -21,8 +25,7 @@ def snapshot(browser):
         for title, keys in cfg.sections(tab):
             fields = []
             for key in keys:
-                # Moving the download store has its own progress UI.
-                if key not in schema or key == 'sync_path':
+                if key not in schema:
                     continue
                 options = cfg.LABELED_ENUMS.get(key)
                 if not options and callable(getattr(browser, '_dynamic_enum', None)):
@@ -33,7 +36,7 @@ def snapshot(browser):
                     options = [(str(value), value) for value in cfg.ENUMS[key]]
                 if options and values.get(key) not in [option[1] for option in options]:
                     options = [*options, (str(values.get(key)), values.get(key))]
-                fields.append(dict(key=key, title=cfg.label_for(key), kind=schema[key],
+                fields.append(dict(key=key, title=cfg.label_for(key), kind='directory' if key == 'sync_path' else schema[key],
                                    value=values.get(key), nullable=cfg.is_nullable(key),
                                    options=options or [], restart=key in cfg.RESTART_REQUIRED,
                                    note=cfg.NOTES.get(key, ''),
@@ -45,6 +48,10 @@ def snapshot(browser):
 
 
 def request(command, browser, player):
+    global _relocation
+    if command == 'settings-relocation-state':
+        with _relocation_lock:
+            return dict(_relocation or {'ok': False, 'error': 'No download move is running.'})
     if command == 'settings-state':
         return snapshot(browser)
     try:
@@ -56,6 +63,24 @@ def request(command, browser, player):
         field = allowed[key]
         if not field['enabled']:
             raise ValueError('Turn off browser fullscreen before changing playback fullscreen.')
+        if key == 'sync_path':
+            if value is not None and (not isinstance(value, str) or not Path(value).is_absolute()):
+                raise ValueError('Choose an absolute folder path.')
+            with _relocation_lock:
+                if _relocation and _relocation.get('busy'):
+                    return dict(ok=False, error='A download move is already running.')
+                _relocation = dict(ok=True, busy=True)
+            def move():
+                global _relocation
+                try:
+                    ok, message = cfg.relocate_downloads(value)
+                    result = dict(ok=ok, busy=False, message=message)
+                except Exception as error:
+                    result = dict(ok=False, busy=False, error=str(error))
+                with _relocation_lock:
+                    _relocation = result
+            threading.Thread(target=move, name='native-download-relocation', daemon=True).start()
+            return dict(ok=True, busy=True)
         if value is None:
             if not field['nullable']:
                 raise ValueError('This setting cannot be empty.')

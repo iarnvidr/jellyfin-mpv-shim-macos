@@ -3,6 +3,8 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
+import threading
+import time
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'work'))
@@ -32,7 +34,8 @@ class NativeSettingsTests(unittest.TestCase):
     def test_schema_excludes_private_and_download_relocation_fields(self):
         model = mac_settings.snapshot(self.browser)
         fields = model['tabs'][0]['groups'][0]['fields']
-        self.assertEqual([field['key'] for field in fields], ['enabled', 'speed', 'choice'])
+        self.assertEqual([field['key'] for field in fields], ['enabled', 'speed', 'choice', 'sync_path'])
+        self.assertEqual(fields[-1]['kind'], 'directory')
         self.assertNotIn('token', json.dumps(model))
 
     def test_saves_use_existing_side_effect_handler_and_coercion(self):
@@ -41,8 +44,31 @@ class NativeSettingsTests(unittest.TestCase):
         self.assertTrue(self.save('speed', None)['ok'])
 
     def test_invalid_values_cannot_reach_save_handler(self):
-        for key, value in [('secret', 'new'), ('sync_path', '/other'), ('enabled', 'false'),
+        for key, value in [('secret', 'new'), ('sync_path', 'relative-path'), ('enabled', 'false'),
                            ('enabled', None), ('choice', 'unknown'), ('speed', 'nan'), ('speed', 'bad')]:
             with self.subTest(key=key, value=value):
                 self.assertFalse(self.save(key, value)['ok'])
+        self.browser._set_setting.assert_not_called()
+
+    def test_download_move_runs_existing_relocator_and_rejects_parallel_moves(self):
+        started, release = threading.Event(), threading.Event()
+        def relocate(path):
+            started.set()
+            release.wait(3)
+            return True, 'Downloads moved'
+        self.cfg.relocate_downloads = Mock(side_effect=relocate)
+        try:
+            self.assertTrue(self.save('sync_path', '/new-downloads')['busy'])
+            self.assertTrue(started.wait(1))
+            self.assertFalse(self.save('sync_path', '/other-downloads')['ok'])
+        finally:
+            release.set()
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            result = mac_settings.request('settings-relocation-state', self.browser, self.player)
+            if not result.get('busy'):
+                break
+            time.sleep(.01)
+        self.assertEqual(result, {'ok': True, 'busy': False, 'message': 'Downloads moved'})
+        self.cfg.relocate_downloads.assert_called_once_with('/new-downloads')
         self.browser._set_setting.assert_not_called()

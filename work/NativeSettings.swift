@@ -101,6 +101,8 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate, NSWindowDel
                         popup.target = self
                         popup.action = #selector(changed(_:))
                         control = popup
+                    } else if field["kind"] as? String == "directory" {
+                        control = NSButton(title: "Move Downloads to Folder…", target: self, action: #selector(chooseFolder(_:)))
                     } else if field["kind"] as? String == "bool" {
                         let button = NSButton(checkboxWithTitle: label, target: self, action: #selector(changed(_:)))
                         button.state = field["value"] as? Bool == true ? .on : .off
@@ -121,10 +123,13 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate, NSWindowDel
                     row.orientation = .vertical
                     row.alignment = .leading
                     row.spacing = 4
-                    if !(control is NSButton) { row.addArrangedSubview(NSTextField(labelWithString: label)) }
+                    if !(control is NSButton) || field["kind"] as? String == "directory" { row.addArrangedSubview(NSTextField(labelWithString: label)) }
                     row.addArrangedSubview(control)
                     control.widthAnchor.constraint(equalToConstant: 570).isActive = true
                     var note = field["note"] as? String ?? ""
+                    if field["kind"] as? String == "directory" {
+                        note = "Current folder: \(field["value"] as? String ?? "Automatic")\n" + note
+                    }
                     if field["restart"] as? Bool == true { note += " Changes take effect after restarting Jellyfin Player." }
                     if !note.isEmpty {
                         let caption = NSTextField(wrappingLabelWithString: note)
@@ -183,16 +188,55 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate, NSWindowDel
         else if let text = control as? NSTextField {
             value = text.stringValue.isEmpty && field["nullable"] as? Bool == true ? NSNull() : text.stringValue
         } else { return }
+        save(control, key: key, value: value)
+    }
+
+    @objc private func chooseFolder(_ control: NSControl) {
+        guard let window = window, let key = control.identifier?.rawValue else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Move Downloads"
+        panel.message = "Existing downloads will move to the selected folder."
+        panel.beginSheetModal(for: window) { [weak self, weak control] response in
+            if response == .OK, let path = panel.url?.path, let control = control {
+                self?.save(control, key: key, value: path)
+            }
+        }
+    }
+
+    private func save(_ control: NSControl, key: String, value: Any) {
         guard let data = try? JSONSerialization.data(withJSONObject: ["key": key, "value": value]),
               let json = String(data: data, encoding: .utf8) else { return }
         control.isEnabled = false
         request("settings-set:" + json) { [weak self, weak control] result in
+            if result?["busy"] as? Bool == true {
+                self?.status.stringValue = "Moving downloads…"
+                self?.pollRelocation(control)
+                return
+            }
             control?.isEnabled = true
             if result?["ok"] as? Bool == true {
                 self?.status.stringValue = result?["restart"] as? Bool == true ? "Saved. Restart Jellyfin Player to apply this change." : "Saved."
             } else {
                 self?.status.stringValue = result?["error"] as? String ?? "The setting could not be saved."
                 NSSound.beep()
+            }
+        }
+    }
+
+    private func pollRelocation(_ control: NSControl?) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak control] in
+            self?.request("settings-relocation-state") { [weak self, weak control] result in
+                if result?["busy"] as? Bool == true { self?.pollRelocation(control); return }
+                control?.isEnabled = true
+                self?.status.stringValue = result?["message"] as? String ?? result?["error"] as? String ?? "Could not check the download move."
+                if result?["ok"] as? Bool == true {
+                    self?.request("settings-state") { [weak self] model in
+                        if let tabs = model?["tabs"] as? [[String: Any]] { self?.build(tabs) }
+                    }
+                }
             }
         }
     }

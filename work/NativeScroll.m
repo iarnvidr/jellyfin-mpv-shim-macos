@@ -124,7 +124,7 @@ static void updateAccessibility(NSDictionary *model) {
         element.accessibilitySubrole = [node[@"secure"] boolValue] ? NSAccessibilitySecureTextFieldSubrole : nil;
         element.accessibilityLabel = node[@"label"];
         element.accessibilityIdentifier = identifier;
-        if (old && ![old[@"value"] isEqual:node[@"value"]]) NSAccessibilityPostNotification(element, NSAccessibilityValueChangedNotification);
+        if (old && (old[@"value"] || node[@"value"]) && ![old[@"value"] isEqual:node[@"value"]]) NSAccessibilityPostNotification(element, NSAccessibilityValueChangedNotification);
         if ([node[@"focused"] boolValue] && ![old[@"focused"] boolValue]) NSAccessibilityPostNotification(element, NSAccessibilityFocusedUIElementChangedNotification);
         [elements addObject:element];
     }

@@ -128,7 +128,7 @@ class NativeMenus:
         return dict(ready=ready, application=application, menus=menus)
 
     def request(self, command):
-        if command == 'settings-state' or command.startswith('settings-set:'):
+        if command in ('settings-state', 'settings-relocation-state') or command.startswith('settings-set:'):
             from mac_settings import request
             return request(command, self.ui._browser, self.player)
         model = self.model()

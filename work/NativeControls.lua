@@ -23,6 +23,16 @@
         old_changed(node, tb)
         if history then history.last = snapshot(tb) end
     end
+    local old_insert, old_key = tb_insert, tb_key
+    local function remember_cursor()
+        local node = focused_node()
+        if node then
+            local tb = tb_state(node)
+            tb.mac_history.last = snapshot(tb)
+        end
+    end
+    tb_insert = function(text) remember_cursor(); old_insert(text) end
+    tb_key = function(operation) remember_cursor(); old_key(operation) end
     local function edit(operation)
         local node = focused_node()
         if not node or node.dis then return end
@@ -120,6 +130,7 @@
         elseif action.action == 'set' and n.t == 'textbox' and type(action.value) == 'string' then
             focus_textbox(n)
             local tb = tb_state(n)
+            tb.mac_history.last = snapshot(tb)
             tb.text, tb.cursor, tb.sel = action.value, #action.value, nil
             tb_changed(n, tb)
         elseif action.action == 'press' then
