@@ -8,6 +8,11 @@ int main(void) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        suppressEngineNowPlaying();
+        MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = @{MPMediaItemPropertyTitle: @"mpv"};
+        MPNowPlayingInfoCenter.defaultCenter.playbackState = MPNowPlayingPlaybackStatePlaying;
+        NSCAssert(MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo == nil, @"The engine is still publishing its own media card");
+        NSCAssert(MPNowPlayingInfoCenter.defaultCenter.playbackState == MPNowPlayingPlaybackStateStopped, @"The engine reclaimed media playback ownership");
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(100,100,800,600)
             styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable) backing:NSBackingStoreBuffered defer:NO];
         [window makeKeyAndOrderFront:nil];

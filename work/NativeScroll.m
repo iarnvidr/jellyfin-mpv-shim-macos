@@ -1,5 +1,7 @@
 // Preserve AppKit's pixel deltas, gesture phases and system momentum.
 #import <Cocoa/Cocoa.h>
+#import <MediaPlayer/MediaPlayer.h>
+#import <objc/runtime.h>
 #import <sys/socket.h>
 #import <sys/un.h>
 #import <fcntl.h>
@@ -22,6 +24,23 @@ static NSDictionary *branding;
 extern void JellyfinInstallNativeMenus(void);
 extern void JellyfinClosePlayerWindow(void);
 static void writeCommand(NSArray *command);
+
+static void ignoreEngineNowPlayingInfo(id center, SEL selector, NSDictionary *info) {}
+static void ignoreEnginePlaybackState(id center, SEL selector, MPNowPlayingPlaybackState state) {}
+
+static void suppressEngineNowPlaying(void) {
+    // The pinned mpv keeps publishing metadata from property observers even
+    // with input-media-keys=no. Suppress its public MediaPlayer setters in
+    // this engine process; the separate Dock host owns the real publisher.
+    Class centerClass = object_getClass(MPNowPlayingInfoCenter.defaultCenter);
+    Method info = class_getInstanceMethod(centerClass, @selector(setNowPlayingInfo:));
+    Method state = class_getInstanceMethod(centerClass, @selector(setPlaybackState:));
+    if (method_getImplementation(info) == (IMP)ignoreEngineNowPlayingInfo) return;
+    MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = nil;
+    MPNowPlayingInfoCenter.defaultCenter.playbackState = MPNowPlayingPlaybackStateStopped;
+    method_setImplementation(info, (IMP)ignoreEngineNowPlayingInfo);
+    method_setImplementation(state, (IMP)ignoreEnginePlaybackState);
+}
 
 @interface JellyfinWindowControls : NSObject
 - (void)closePlayer:(id)sender;
@@ -155,6 +174,7 @@ static NSData *iconPixels(NSImage *image) {
 }
 
 static void applyPlayerBranding(void) {
+    suppressEngineNowPlaying();
     if ([NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_HOSTED"] isEqualToString:@"1"]) {
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
     }
@@ -198,7 +218,9 @@ static void applyPlayerBranding(void) {
                  // AppKit resamples Dock icons. Allow less than 1% mean RGBA
                  // deviation, rather than requiring identical antialiasing.
                  @"iconPixelMeanError": @(iconError),
-                 @"iconMatchesJellyfin": @((BOOL)(iconError <= 2.0))};
+                 @"iconMatchesJellyfin": @((BOOL)(iconError <= 2.0)),
+                 @"engineNowPlayingSuppressed": @((BOOL)(method_getImplementation(class_getInstanceMethod(
+                     object_getClass(MPNowPlayingInfoCenter.defaultCenter), @selector(setNowPlayingInfo:))) == (IMP)ignoreEngineNowPlayingInfo))};
     JellyfinInstallNativeMenus();
 }
 
@@ -263,8 +285,9 @@ static void connectSocket(void) {
                 atomic_store(&scrollEnabled, [enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue]);
             }
             if ([event isKindOfClass:NSDictionary.class] && [event[@"id"] integerValue] == 9002 && [event[@"data"] isKindOfClass:NSDictionary.class]) {
-                NSString *action = event[@"data"][@"action"];
-                id request = event[@"data"][@"request"] ?: @"";
+                NSDictionary *payload = event[@"data"];
+                NSString *action = payload[@"action"];
+                id request = payload[@"request"] ?: @"";
                 dispatch_async(dispatch_get_main_queue(), ^{
                     if ([action isEqualToString:@"hide"]) [NSApp hide:nil];
                     if ([action isEqualToString:@"close"]) {
@@ -288,7 +311,8 @@ static void connectSocket(void) {
                 });
             }
             if ([event[@"id"] integerValue] == 9003 && [event[@"data"] isKindOfClass:NSDictionary.class]) {
-                atomic_store(&textFocused, [event[@"data"][@"focused"] boolValue]);
+                NSDictionary *payload = event[@"data"];
+                atomic_store(&textFocused, [payload[@"focused"] boolValue]);
             }
             if ([event[@"id"] integerValue] == 9004 && [event[@"data"] isKindOfClass:NSDictionary.class]) {
                 NSDictionary *model = event[@"data"];
@@ -340,6 +364,7 @@ __attribute__((constructor)) static void installNativeScrolling(void) {
         dispatch_source_set_event_handler(retryTimer, ^{ connectSocket(); });
         dispatch_resume(retryTimer);
         dispatch_async(dispatch_get_main_queue(), ^{
+            suppressEngineNowPlaying();
             [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
                 if (!atomic_load(&textFocused)) return event;
                 NSEventModifierFlags modifiers = event.modifierFlags;

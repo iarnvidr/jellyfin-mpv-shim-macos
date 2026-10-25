@@ -133,6 +133,26 @@ class NativeMenuTests(unittest.TestCase):
         self.menu.request('7:volume-100')
         self.pm.set_volume.assert_called_with(100)
 
+    def test_system_play_and_pause_are_explicit_and_seek_is_bounded(self):
+        self.engine.duration = 120
+        self.menu.request('7:system-play')
+        self.pm.set_paused.assert_called_with(False)
+        self.menu.request('7:system-pause')
+        self.pm.set_paused.assert_called_with(True)
+        self.assertTrue(self.menu.request('7:system-seek:35.5')['ok'])
+        self.pm.seek.assert_called_once_with(35.5, absolute=True)
+        for command in ('7:system-seek:nan', '7:system-seek:-1', '7:system-seek:121', '6:system-seek:30'):
+            self.assertFalse(self.menu.request(command)['ok'])
+
+    def test_queued_system_seek_cannot_cross_a_playback_change(self):
+        self.engine.duration = 120
+        queue = []
+        self.pm.put_task.side_effect = queue.append
+        self.assertTrue(self.menu.request('7:system-seek:30')['ok'])
+        self.pm._play_epoch += 1
+        queue.pop()()
+        self.pm.seek.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
