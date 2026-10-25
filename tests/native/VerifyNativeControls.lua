@@ -2,11 +2,11 @@
 local engine = mp
 local function verify()
     local callbacks, timers, properties, events = {}, {}, {}, {}
-    mp = {
+    mp = setmetatable({
         register_script_message=function(name, callback) callbacks[name] = callback end,
         add_periodic_timer=function(_, callback) timers[#timers+1] = callback end,
         set_property_native=function(name, value) properties[name] = value end,
-    }
+    }, {__index=engine})
     -- JSON is opaque to this unit harness; the packaged smoke also exercises
     -- the actual JSON/IPC and AppKit path.
     utils = {format_json=function(value) return value end, parse_json=function(value) return value end}
