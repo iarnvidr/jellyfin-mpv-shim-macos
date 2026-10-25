@@ -6,11 +6,11 @@ This is a preview for **Apple Silicon (arm64), macOS 15.7.9 or later**. Native m
 
 ## Installation and updates
 
-[Download Jellyfin Player 0.2.1](https://github.com/iarnvidr/jellyfin-mpv-shim-macos/releases/tag/v0.2.1), quit any older Jellyfin MPV Shim/Jellyfin Player instance, open the DMG, and drag **Jellyfin Player.app** to Applications. Python, mpv, and Sparkle are bundled; no Homebrew, Python installation, or additional runtime download is needed. Release assets include SHA-256 checksums, an explicit native signature inventory, and a Sparkle Ed25519 signature for the update ZIP. Version 0.2.0 has invalid nested signatures and should not be installed.
+[Download Jellyfin Player](https://github.com/iarnvidr/jellyfin-mpv-shim-macos/releases), quit any older Jellyfin MPV Shim/Jellyfin Player instance, open the latest preview's DMG, and drag **Jellyfin Player.app** to Applications. Python, mpv, and Sparkle are bundled; no Homebrew, Python installation, or additional runtime download is needed. Release assets include SHA-256 checksums, an explicit native signature inventory, and a Sparkle Ed25519 signature for the update ZIP. Version 0.2.0 has invalid nested signatures and should not be installed.
 
 Jellyfin Player uses the Dock and Command-Tab. If another installed version holds the shared settings lock, a dialog identifies it and asks you to quit it. Startup failures offer **Copy Diagnostics** and **Open Logs**.
 
-Sparkle checks the repository's GitHub-hosted appcast and downloads complete app updates from GitHub Releases. The production appcast currently contains no releases while install/relaunch testing is pending; this preview must be installed manually.
+Sparkle checks the repository's GitHub-hosted appcast and downloads complete app updates from GitHub Releases. The feed includes version 0.2.3, which passed native CI checks for legacy installation and current-host automatic installation and relaunch. Feed publication requires both checks to pass for each new release.
 
 ## Build and checks (maintainers)
 
@@ -25,6 +25,8 @@ uv run --locked python work/package.py
 ```
 
 The build and packaging commands produce a local app/package; they do not establish interactive GUI qualification, notarization, or release readiness. Run the repository's checks with `uv run --locked python scripts/check.py`.
+
+To ship a preview, update `VERSION`, the project version in `pyproject.toml` and its matching `uv.lock` entry together, merge to `main`, and wait for its **macOS build** to succeed. Run **Prepare macOS release** on `main` with that build's run ID, the matching `vX.Y.Z` tag, and `publish=true`. It reuses the exact tested packages, signs the update ZIP, publishes a preview, then runs both installation checks before updating the feed. A failed qualification leaves the published preview available for manual download and leaves the feed unchanged; fix the qualification and run **Sparkle installation check** on `main` with `to_version=X.Y.Z` and `publish=true` to retry while `VERSION` still matches. Leave `publish=false` to prepare only a draft. Published tags and assets must not be replaced.
 
 ## Repository
 

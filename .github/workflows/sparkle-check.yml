@@ -1,11 +1,19 @@
 name: Sparkle installation check
 on:
+  workflow_call:
+    inputs:
+      to_version:
+        required: true
+        type: string
+      publish:
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       to_version:
         description: Published version to qualify
         required: true
-        default: '0.2.3'
+        default: '0.2.4'
         type: string
       publish:
         description: Publish the feed after both installation checks pass
