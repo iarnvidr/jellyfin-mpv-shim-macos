@@ -48,6 +48,9 @@ struct VerifyNativeMenus {
                         ["key": "enabled", "title": "Enabled", "kind": "bool", "value": true],
                         ["key": "speed", "title": "Speed", "kind": "float", "value": 1.25],
                         ["key": "choice", "title": "Choice", "kind": "str", "value": "b", "options": [["A", "a"], ["B", "b"]]]]]]]]])
+            } else if command.hasPrefix("updates-") {
+                completion(["ok": true, "checks": command != "updates-checks:off", "downloads": false,
+                            "allowsDownloads": true, "canCheck": true, "version": "0.2.9", "lastCheck": "Never"])
             } else { completion(["ok": true]) }
         }
         preferences.open()
@@ -61,6 +64,16 @@ struct VerifyNativeMenus {
         precondition(popup.titleOfSelectedItem == "B" && text.stringValue == "1.25")
         checkbox.performClick(nil)
         precondition(requests.last!.hasPrefix("settings-set:"))
+        let tabs = preferences.window!.contentView!.subviews.flatMap { $0.subviews }.first { $0 is NSTabView } as! NSTabView
+        tabs.selectTabViewItem(withIdentifier: "updates")
+        let updateControls = controls(preferences.window!.contentView!)
+        let checks = updateControls.first { $0.identifier?.rawValue == "checks" } as! NSButton
+        precondition(checks.state == .on)
+        checks.performClick(nil)
+        precondition(requests.last == "updates-checks:off")
+        let checkNow = controls(preferences.window!.contentView!).compactMap { $0 as? NSButton }.first { $0.title == "Check for Updates…" }!
+        checkNow.performClick(nil)
+        precondition(requests.last == "updates-check")
         precondition(preferences.window?.windowController === preferences)
         preferences.close()
         let icon = NSImage(size: NSSize(width: 64, height: 64))

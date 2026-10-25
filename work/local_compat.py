@@ -4,6 +4,18 @@ import hashlib
 from mac_volume import MAX_VOLUME, adjust_volume, patch_sliders
 
 
+def patch_title_header(element):
+    # Native window controls disable upstream CSD, but the hovering playback
+    # header still needs a drag/double-click hit area, including no-scrim themes.
+    if getattr(element, 'id', None) == 'hud-topbar':
+        element.window_drag = True
+    for child in getattr(element, 'children', ()):
+        patch_title_header(child)
+    child = getattr(element, 'child', None)
+    if child is not None:
+        patch_title_header(child)
+
+
 def patch_volume_persistence(player):
     # Upstream nests the _mpv_errors tuple inside an except tuple, raising
     # TypeError instead of handling the lost IPC connection.
@@ -23,6 +35,8 @@ def patch_volume_persistence(player):
 
 def patch_renderer(text):
     replacements = [
+        ("local ok, cur = pcall(mp.get_property_bool, 'window-maximized')\n            if ok then\n                pcall(mp.set_property_bool, 'window-maximized', not cur)\n            end",
+         "mp.set_property_native('user-data/jellyfin-window-action', {action='zoom', request=tostring(mp.get_time())})"),
         ('function() state.mouse.down = true; on_rclick() end',
          'function() state.mouse.down = nil end'),
         ('if scale <= 0 then scale = 1 end', 'if scale <= 0 then return end'),
@@ -91,7 +105,7 @@ def apply(resources, package):
             # The upstream default discards terminal output. Keep a bounded,
             # redacted tail, drained continuously, for startup failure reports.
             args = [*args, '--terminal=yes', '--title=Jellyfin Player', f'--volume-max={MAX_VOLUME}',
-                    '--input-media-keys=no']
+                    '--input-media-keys=no', '--keepaspect-window=no']
             keywords.update(stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             original_popen(self, args, *positional, **keywords)
             startup.record_engine(self)
@@ -141,6 +155,7 @@ def apply(resources, package):
     TransportMixin.adjust_volume = adjust_volume
     original_layout = renderer_app.layout
     def accessible_layout(*args, **kwargs):
+        patch_title_header(args[0] if args else kwargs['root'])
         nodes, handlers = original_layout(*args, **kwargs)
         patch_sliders(nodes)
         for node in nodes:

@@ -43,6 +43,15 @@ class NativeSettingsTests(unittest.TestCase):
         self.browser._set_setting.assert_called_once_with('speed', 1.25)
         self.assertTrue(self.save('speed', None)['ok'])
 
+    def test_retired_upstream_update_settings_are_hidden_and_rejected(self):
+        self.values.update(check_updates=True, notify_updates='auto')
+        schema = dict(self.cfg.settings_schema(), check_updates='bool', notify_updates='str')
+        self.cfg.settings_schema = lambda: schema
+        encoded = json.dumps(mac_settings.snapshot(self.browser))
+        self.assertNotIn('check_updates', encoded)
+        self.assertNotIn('notify_updates', encoded)
+        self.assertFalse(self.save('check_updates', False)['ok'])
+
     def test_invalid_values_cannot_reach_save_handler(self):
         for key, value in [('secret', 'new'), ('sync_path', 'relative-path'), ('enabled', 'false'),
                            ('enabled', None), ('choice', 'unknown'), ('speed', 'nan'), ('speed', 'bad')]:

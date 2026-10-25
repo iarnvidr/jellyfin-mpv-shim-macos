@@ -50,7 +50,7 @@ shutil.move(app/'Contents/MacOS'/NAME,core/'MacOS/Jellyfin Player Core')
 for directory in ('Frameworks','Resources'):
  shutil.move(app/'Contents'/directory,core/directory)
  (app/'Contents'/directory).mkdir()
-command(swiftc,str(WORK/'AppHost.swift'),str(WORK/'NativeMenus.swift'),str(WORK/'NativeSettings.swift'),str(WORK/'NativeMedia.swift'),'-o',str(app/'Contents/MacOS'/NAME),'-framework','AppKit','-framework','MediaPlayer')
+command(swiftc,str(WORK/'AppHost.swift'),str(WORK/'NativeMenus.swift'),str(WORK/'NativeSettings.swift'),str(WORK/'NativeMedia.swift'),'-o',str(app/'Contents/MacOS'/NAME),'-F',str(WORK),'-framework','Sparkle','-Xlinker','-rpath','-Xlinker','@executable_path/../Frameworks','-framework','AppKit','-framework','MediaPlayer')
 shutil.copy2(WORK/'native-scroll.dylib',app/'Contents/Frameworks/native-scroll.dylib')
 shutil.copy2(WORK/'source/jellyfin.icns',app/'Contents/Resources/jellyfin.icns')
 support=app/'Contents/Resources/mac_support'; support.mkdir(parents=True,exist_ok=True)
@@ -139,7 +139,7 @@ env_public_key=os.environ.get('SPARKLE_PUBLIC_ED_KEY')
 if env_public_key is not None and env_public_key != public_key: raise SystemExit('SPARKLE_PUBLIC_ED_KEY does not match the configured Sparkle public key')
 info.update(CFBundleShortVersionString=VERSION,CFBundleVersion=VERSION,CFBundleName='Jellyfin Player',CFBundleDisplayName='Jellyfin Player',CFBundleExecutable='Jellyfin Player',CFBundleIconFile='jellyfin.icns',LSUIElement=False,LSBackgroundOnly=False,LSMinimumSystemVersion=MINIMUM_MACOS,NSHighResolutionCapable=True,SUFeedURL='https://raw.githubusercontent.com/iarnvidr/jellyfin-mpv-shim-macos/updates/appcast.xml',SUPublicEDKey=public_key)
 info.update(NSLocalNetworkUsageDescription='Find and connect to your Jellyfin server on your local network.',
-            NSBonjourServices=['_jellyfin._tcp'])
+            NSBonjourServices=['_jellyfin._tcp'], SUEnableAutomaticChecks=True, SUAutomaticallyUpdate=False)
 with info_path.open('wb') as f: plistlib.dump(info,f)
 # Provenance and inventory are generated before signing; artifact hash is added by packaging.
 manifest={'schema':1,'version':VERSION,'python':platform.python_version(),'platform':platform.platform(),'mpv':{'version':LOCK['MPV_VERSION'],'url':LOCK['MPV_URL'],'sha256':LOCK['MPV_SHA256'],'executable':'Contents/Resources/mpv.app/Contents/MacOS/mpv'},'sparkle':{'version':LOCK['SPARKLE_VERSION'],'url':LOCK['SPARKLE_URL'],'sha256':LOCK['SPARKLE_SHA256']},'inputs':{'python_lock_sha256':digest(ROOT/'uv.lock'),'native_lock_sha256':digest(WORK/'native-dependencies.lock')}}

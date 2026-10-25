@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Network
 import Darwin
+import Sparkle
 
 final class AppHost: NSObject, NSApplicationDelegate {
     private func log(_ message: String) {
@@ -12,9 +13,12 @@ final class AppHost: NSObject, NSApplicationDelegate {
     private var signals: [DispatchSourceSignal] = []
     private var menus: NativeMenuSession?
     private var playerClosed = false
+    private var updater: SPUStandardUpdaterController?
     private let arguments = Array(CommandLine.arguments.dropFirst())
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Keep Sparkle's scheduler alive for the lifetime of the actual app.
+        updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
         let process = Process()
         process.executableURL = Bundle.main.bundleURL.appendingPathComponent(
             "Contents/Helpers/Jellyfin Player Core.app/Contents/MacOS/Jellyfin Player Core")
@@ -39,7 +43,8 @@ final class AppHost: NSObject, NSApplicationDelegate {
             try process.run()
             core = process
             menus = NativeMenuSession(lock: profileURL.appendingPathComponent("instance.lock"),
-                                      corePID: Int(process.processIdentifier)) { NSApp.terminate(nil) }
+                                      corePID: Int(process.processIdentifier),
+                                      updates: { [weak self] command in self?.updateCommand(command) }) { NSApp.terminate(nil) }
         } catch {
             let alert = NSAlert()
             alert.messageText = "Jellyfin Player could not start"
@@ -47,7 +52,7 @@ final class AppHost: NSObject, NSApplicationDelegate {
             alert.runModal()
             NSApp.terminate(nil)
         }
-        for number in [SIGTERM, SIGINT, SIGUSR1, SIGUSR2, SIGURG, SIGWINCH] {
+        for number in [SIGTERM, SIGINT, SIGUSR1, SIGUSR2, SIGURG, SIGWINCH, SIGALRM] {
             signal(number, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
             source.setEventHandler {
@@ -55,11 +60,31 @@ final class AppHost: NSObject, NSApplicationDelegate {
                 else if number == SIGUSR2 { self.playerClosed = false; NSApp.unhideWithoutActivation() }
                 else if number == SIGWINCH { self.playerClosed = true }
                 else if number == SIGURG { self.menus?.openSettings() }
+                else if number == SIGALRM { _ = self.updateCommand("updates-check") }
                 else { NSApp.terminate(nil) }
             }
             source.resume()
             signals.append(source)
         }
+    }
+
+    private func updateCommand(_ command: String) -> [String: Any]? {
+        guard command.hasPrefix("updates-"), let updater = updater?.updater else { return nil }
+        switch command {
+        case "updates-check": updater.checkForUpdates()
+        case "updates-checks:on": updater.automaticallyChecksForUpdates = true
+        case "updates-checks:off": updater.automaticallyChecksForUpdates = false
+        case "updates-downloads:on": updater.automaticallyDownloadsUpdates = true
+        case "updates-downloads:off": updater.automaticallyDownloadsUpdates = false
+        case "updates-state": break
+        default: return ["ok": false]
+        }
+        return ["ok": true, "checks": updater.automaticallyChecksForUpdates,
+                "downloads": updater.automaticallyDownloadsUpdates,
+                "allowsDownloads": updater.allowsAutomaticUpdates,
+                "canCheck": updater.canCheckForUpdates,
+                "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown",
+                "lastCheck": updater.lastUpdateCheckDate.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .short) } ?? "Never"]
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

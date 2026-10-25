@@ -192,12 +192,15 @@ final class NativeMenuSession {
     private var settings: NativeSettings?
     private var media: NativeMedia?
     private let isHost: Bool
+    private let updates: ((String) -> [String: Any]?)?
     var isTracking: Bool { bar.isTracking }
 
-    init(lock: URL, corePID: Int, isHost: Bool = true, quit: @escaping () -> Void) {
+    init(lock: URL, corePID: Int, isHost: Bool = true,
+         updates: ((String) -> [String: Any]?)? = nil, quit: @escaping () -> Void) {
         self.lock = lock
         self.corePID = corePID
         self.isHost = isHost
+        self.updates = updates
         if isHost {
             media = NativeMedia { [weak self] command in
                 self?.request(command) { [weak self] _ in self?.refresh() }
@@ -205,6 +208,7 @@ final class NativeMenuSession {
         }
         bar = PlayerMenuBar(perform: { [weak self] command in
             if command == "settings" { self?.openSettings(); return }
+            if command == "updates", let updates = self?.updates { _ = updates("updates-check"); return }
             self?.request(command) { result in
                 if result?["ok"] as? Bool != true { NSSound.beep() }
                 self?.refresh()
@@ -248,6 +252,7 @@ final class NativeMenuSession {
     }
 
     private func request(_ command: String, completion: @escaping ([String: Any]?) -> Void) {
+        if command.hasPrefix("updates-"), let updates = updates { completion(updates(command)); return }
         guard let text = try? String(contentsOf: lock, encoding: .utf8) else { completion(nil); return }
         let lines = text.components(separatedBy: .newlines)
         guard lines.count >= 3, let port = UInt16(lines[0]), let endpoint = NWEndpoint.Port(rawValue: port),

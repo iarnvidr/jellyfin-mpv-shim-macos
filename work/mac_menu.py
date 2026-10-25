@@ -1,6 +1,7 @@
 """Native menu model and allowlisted actions, using the existing player handlers."""
 import sys
 import math
+import time
 from mac_volume import MAX_VOLUME
 from mac_media import snapshot as media_snapshot
 
@@ -126,7 +127,7 @@ class NativeMenus:
                 item('Playback Information', 'stats', pm.toggle_stats, enabled=media, key='i', playback=True)]),
             dict(title='Window', items=[
                 item('Minimize', 'minimize', lambda: setattr(engine, 'window_minimized', True), enabled=ready, key='m'),
-                item('Zoom', 'zoom', lambda: engine.command('set_property', 'user-data/jellyfin-window-action', {'action': 'zoom'}), enabled=ready),
+                item('Zoom', 'zoom', lambda: engine.command('set_property', 'user-data/jellyfin-window-action', {'action': 'zoom', 'request': str(time.monotonic_ns())}), enabled=ready),
                 item('Bring All to Front', 'front', ui.on_second_launch, enabled=ready),
                 item('Show Player', 'show', ui.on_second_launch, enabled=ready)]),
             dict(title='Help', items=[

@@ -25,7 +25,7 @@ def snapshot(browser):
         for title, keys in cfg.sections(tab):
             fields = []
             for key in keys:
-                if key not in schema:
+                if key not in schema or key in {'check_updates', 'notify_updates'}:
                     continue
                 options = cfg.LABELED_ENUMS.get(key)
                 if not options and callable(getattr(browser, '_dynamic_enum', None)):

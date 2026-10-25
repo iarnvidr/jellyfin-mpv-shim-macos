@@ -17,6 +17,11 @@ int main(void) {
             styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable) backing:NSBackingStoreBuffered defer:NO];
         [window makeKeyAndOrderFront:nil];
         applyPlayerBranding();
+        NSRect originalFrame = window.frame;
+        fillPlayerWindow(window);
+        NSCAssert(sameFrame(window.frame, window.screen.visibleFrame), @"Zoom did not fill the usable desktop");
+        fillPlayerWindow(window);
+        NSCAssert(sameFrame(window.frame, originalFrame), @"Zoom did not restore the original frame");
         [[window standardWindowButton:NSWindowCloseButton] performClick:nil];
         NSCAssert(closeRequested && window.isVisible, @"Red close button bypassed the core stop/close handler");
         NSDictionary *password = @{@"id": @"password", @"role": @"text", @"label": @"Password",
