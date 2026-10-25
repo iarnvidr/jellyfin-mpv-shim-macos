@@ -219,8 +219,8 @@ static void applyPlayerBranding(void) {
                  // deviation, rather than requiring identical antialiasing.
                  @"iconPixelMeanError": @(iconError),
                  @"iconMatchesJellyfin": @((BOOL)(iconError <= 2.0)),
-                 @"engineNowPlayingSuppressed": @(method_getImplementation(class_getInstanceMethod(
-                     object_getClass(MPNowPlayingInfoCenter.defaultCenter), @selector(setNowPlayingInfo:))) == (IMP)ignoreEngineNowPlayingInfo)};
+                 @"engineNowPlayingSuppressed": @((BOOL)(method_getImplementation(class_getInstanceMethod(
+                     object_getClass(MPNowPlayingInfoCenter.defaultCenter), @selector(setNowPlayingInfo:))) == (IMP)ignoreEngineNowPlayingInfo))};
     JellyfinInstallNativeMenus();
 }
 
