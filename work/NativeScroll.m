@@ -285,8 +285,9 @@ static void connectSocket(void) {
                 atomic_store(&scrollEnabled, [enabled respondsToSelector:@selector(boolValue)] && [enabled boolValue]);
             }
             if ([event isKindOfClass:NSDictionary.class] && [event[@"id"] integerValue] == 9002 && [event[@"data"] isKindOfClass:NSDictionary.class]) {
-                NSString *action = event[@"data"][@"action"];
-                id request = event[@"data"][@"request"] ?: @"";
+                NSDictionary *payload = event[@"data"];
+                NSString *action = payload[@"action"];
+                id request = payload[@"request"] ?: @"";
                 dispatch_async(dispatch_get_main_queue(), ^{
                     if ([action isEqualToString:@"hide"]) [NSApp hide:nil];
                     if ([action isEqualToString:@"close"]) {
@@ -310,7 +311,8 @@ static void connectSocket(void) {
                 });
             }
             if ([event[@"id"] integerValue] == 9003 && [event[@"data"] isKindOfClass:NSDictionary.class]) {
-                atomic_store(&textFocused, [event[@"data"][@"focused"] boolValue]);
+                NSDictionary *payload = event[@"data"];
+                atomic_store(&textFocused, [payload[@"focused"] boolValue]);
             }
             if ([event[@"id"] integerValue] == 9004 && [event[@"data"] isKindOfClass:NSDictionary.class]) {
                 NSDictionary *model = event[@"data"];
