@@ -10,6 +10,10 @@ on:
         description: Version tag matching VERSION (for example v0.2.0)
         required: true
         type: string
+      publish:
+        description: Publish the preview, verify installation and relaunch, then update the feed
+        default: false
+        type: boolean
 permissions:
   contents: read
 concurrency:
@@ -89,3 +93,16 @@ jobs:
             gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" -f "ref=refs/tags/${PREVIEW_TAG}" -f "sha=${TRUSTED_SHA}"
           fi
           gh release create "$PREVIEW_TAG" artifacts/* --draft --prerelease --verify-tag --title "Jellyfin Player $(cat VERSION)" --notes 'Apple Silicon macOS preview. Update signature and checksums included. Not Apple notarized.'
+      - name: Publish preview for installation qualification
+        if: inputs.publish
+        run: gh release edit "$PREVIEW_TAG" --draft=false
+  qualify:
+    needs: preview-publish
+    if: inputs.publish
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/sparkle-check.yml
+    with:
+      to_version: ${{ inputs.preview_tag }}
+      publish: true

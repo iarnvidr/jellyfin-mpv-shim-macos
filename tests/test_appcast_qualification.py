@@ -9,6 +9,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import publish_appcast
 import release
+import sparkle_smoke
 
 
 class AppcastQualification(unittest.TestCase):
@@ -49,6 +50,20 @@ class AppcastQualification(unittest.TestCase):
     def test_only_the_exact_tested_appcast_is_staged(self):
         candidate, _ = self.validate()
         self.assertEqual(candidate, self.candidate)
+
+    def test_historical_installation_uses_an_isolated_fixture_feed(self):
+        metadata = dict(self.record['metadata'], version='0.2.2',
+                        asset_url=release.ASSET_ROOT + 'v0.2.2/Jellyfin-Player-0.2.2-Apple-Silicon.zip')
+        with self.assertRaisesRegex(ValueError, 'strictly newer'):
+            sparkle_smoke.installation_appcast(self.candidate, metadata)
+        candidate = sparkle_smoke.installation_appcast(self.candidate, metadata, fixture_feed=True)
+        self.assertIn(b'<title>0.2.2</title>', candidate)
+        self.assertNotIn(b'<title>0.2.3</title>', candidate)
+
+    def test_fixture_evidence_cannot_publish_even_when_other_checks_pass(self):
+        self.write(dict(self.record, fixture_feed=True))
+        with self.assertRaisesRegex(ValueError, 'fixture'):
+            self.validate()
 
     def test_incomplete_installation_relaunch_and_signatures_are_rejected(self):
         for changes in ({'passed': False}, {'manual_reopen': True}, {'new_pid': None},
