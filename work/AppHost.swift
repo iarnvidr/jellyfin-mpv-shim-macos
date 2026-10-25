@@ -137,6 +137,6 @@ struct JellyfinApplication {
         app.setActivationPolicy(.regular)
         let host = AppHost()
         app.delegate = host
-        app.run()
+        withExtendedLifetime(host) { app.run() }
     }
 }
