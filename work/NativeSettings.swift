@@ -2,7 +2,7 @@ import AppKit
 
 // AppKit controls provide native text editing, keyboard navigation, appearance
 // and accessibility. The core remains the sole owner of preference validation.
-final class NativeSettings: NSWindowController, NSTextFieldDelegate {
+final class NativeSettings: NSWindowController, NSTextFieldDelegate, NSWindowDelegate {
     typealias Transport = (String, @escaping ([String: Any]?) -> Void) -> Void
     private let request: Transport
     private let tabs = NSTabView()
@@ -20,6 +20,7 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate {
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 600, height: 450)
         super.init(window: window)
+        window.delegate = self
         let content = NSStackView(views: [tabs, status])
         content.orientation = .vertical
         content.alignment = .leading
@@ -53,8 +54,10 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate {
     deinit { if let monitor = editingMonitor { NSEvent.removeMonitor(monitor) } }
 
     func open() {
+        let alreadyOpen = window?.isVisible == true
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+        if alreadyOpen { return }
         request("settings-state") { [weak self] model in
             guard let self = self else { return }
             guard let model = model, let sections = model["tabs"] as? [[String: Any]] else {
@@ -111,6 +114,7 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate {
                         control = text
                     }
                     control.identifier = NSUserInterfaceItemIdentifier(key)
+                    control.isEnabled = field["enabled"] as? Bool ?? true
                     control.setAccessibilityLabel(label)
                     control.toolTip = field["note"] as? String
                     let row = NSStackView()
@@ -163,6 +167,11 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate {
 
     func controlTextDidEndEditing(_ notification: Notification) {
         if let control = notification.object as? NSControl { changed(control) }
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.makeFirstResponder(nil)
+        return true
     }
 
     @objc private func changed(_ control: NSControl) {

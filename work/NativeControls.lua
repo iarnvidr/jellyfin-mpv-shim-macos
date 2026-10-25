@@ -92,7 +92,7 @@
                     controls[#controls+1] = {id=n.id or ('label-'..index), role=role,
                         label=n.mask and (n.ph or n.tip or 'Password') or text, value=value, secure=n.mask or false,
                         enabled=not n.dis, x=x1, y=y1, w=x2-x1, h=y2-y1,
-                        focused=state.focus == n.id, min=n.min, max=n.max, generation=generation}
+                        focused=state.focus == n.id or state.nav == n.id, min=n.min, max=n.max, generation=generation}
                     if role == 'popup' and state.dd_open == n.id then
                         for option, label in ipairs(n.items or {}) do
                             controls[#controls+1] = {id=n.id..':option:'..option, control=n.id,
@@ -115,8 +115,8 @@
         if not action or action.generation ~= generation or state.scene ~= last_scene then return end
         local n = state.byid[action.control or action.id]
         if not n or n.dis or not visible(n) or (modal_active() and not n.mod) then return end
-        if action.action == 'focus' and n.t == 'textbox' then
-            focus_textbox(n)
+        if action.action == 'focus' then
+            if n.t == 'textbox' then focus_textbox(n) else nav_set(n) end
         elseif action.action == 'set' and n.t == 'textbox' and type(action.value) == 'string' then
             focus_textbox(n)
             local tb = tb_state(n)

@@ -25,12 +25,19 @@ def snapshot(browser):
                 if key not in schema or key == 'sync_path':
                     continue
                 options = cfg.LABELED_ENUMS.get(key)
+                if not options and callable(getattr(browser, '_dynamic_enum', None)):
+                    dynamic = browser._dynamic_enum(key)
+                    if isinstance(dynamic, (list, tuple)):
+                        options = dynamic
                 if options is None and key in cfg.ENUMS:
                     options = [(str(value), value) for value in cfg.ENUMS[key]]
+                if options and values.get(key) not in [option[1] for option in options]:
+                    options = [*options, (str(values.get(key)), values.get(key))]
                 fields.append(dict(key=key, title=cfg.label_for(key), kind=schema[key],
                                    value=values.get(key), nullable=cfg.is_nullable(key),
                                    options=options or [], restart=key in cfg.RESTART_REQUIRED,
-                                   note=cfg.NOTES.get(key, '')))
+                                   note=cfg.NOTES.get(key, ''),
+                                   enabled=not (key == 'fullscreen' and values.get('browser_fullscreen'))))
             if fields:
                 groups.append(dict(title=title, fields=fields))
         tabs.append(dict(id=tab, title=tab.title(), groups=groups))
@@ -47,6 +54,8 @@ def request(command, browser, player):
         allowed = {field['key']: field for tab in snapshot(browser)['tabs']
                    for group in tab['groups'] for field in group['fields']}
         field = allowed[key]
+        if not field['enabled']:
+            raise ValueError('Turn off browser fullscreen before changing playback fullscreen.')
         if value is None:
             if not field['nullable']:
                 raise ValueError('This setting cannot be empty.')

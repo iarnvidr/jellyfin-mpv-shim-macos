@@ -9,7 +9,7 @@ int main(void) {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(100,100,800,600)
-            styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+            styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable) backing:NSBackingStoreBuffered defer:NO];
         [window makeKeyAndOrderFront:nil];
         applyPlayerBranding();
         [[window standardWindowButton:NSWindowCloseButton] performClick:nil];
