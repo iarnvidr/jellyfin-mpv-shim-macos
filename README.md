@@ -16,9 +16,13 @@ macOS Now Playing and system media commands belong to the Jellyfin Player Dock a
 
 Settings uses native macOS controls. Command-W and the red close button stop playback and close the player window while keeping the app in the Dock; click its Dock icon or choose Show Player to reopen it. Command-Q quits the app. Browser text fields support Command-Z/Shift-Command-Z, clipboard commands, Command-arrow line navigation, and Option-arrow word navigation. The custom browser exposes visible controls through macOS Accessibility, including protected password fields.
 
+Double-click the playback title header, or choose Window → Zoom, to fill the available desktop; repeat to restore the previous size. Video keeps its proportions. Double-clicking the native title bar also respects macOS's Minimize or Do Nothing preference.
+
 For quiet audio, including audio reduced during a FaceTime call, use **Audio → Volume → 200%**, the volume shortcuts, or the player sliders. All support 0–200%, with separate remembered volumes for music and video. **100% (Normal)** restores normal playback volume. Boost is manual and can distort loud recordings; it does not disable FaceTime's system audio reduction.
 
 Sparkle checks the repository's GitHub-hosted appcast and downloads complete app updates from GitHub Releases. The feed includes version 0.2.3, which passed native CI checks for legacy installation and current-host automatic installation and relaunch. Feed publication requires both checks to pass for each new release.
+
+The app keeps Sparkle running to check automatically while Jellyfin Player is open. Settings → Updates controls Sparkle's saved preferences, shows the installed version and last check, and provides Check for Updates. Automatic checking is enabled by default; automatic downloading and installation is optional.
 
 ## Build and checks (maintainers)
 

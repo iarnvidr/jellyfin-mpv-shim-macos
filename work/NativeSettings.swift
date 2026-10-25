@@ -10,6 +10,12 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate, NSWindowDel
     private var fields: [String: [String: Any]] = [:]
     private var optionValues: [String: [Any]] = [:]
     private var editingMonitor: Any?
+    private var updateState: [String: Any] = [:]
+    private var updateTimer: Timer?
+    private var updateChecks: NSButton?
+    private var updateDownloads: NSButton?
+    private var updateNow: NSButton?
+    private var updateLastCheck: NSTextField?
 
     init(request: @escaping Transport) {
         self.request = request
@@ -48,16 +54,32 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate, NSWindowDel
             }
             return event
         }
+        let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+            guard let self = self, self.window?.isVisible == true else { return }
+            self.request("updates-state") { [weak self] model in
+                if let model = model, model["ok"] as? Bool == true { self?.buildUpdates(model) }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        updateTimer = timer
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-    deinit { if let monitor = editingMonitor { NSEvent.removeMonitor(monitor) } }
+    deinit {
+        updateTimer?.invalidate()
+        if let monitor = editingMonitor { NSEvent.removeMonitor(monitor) }
+    }
 
     func open() {
         let alreadyOpen = window?.isVisible == true
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
-        if alreadyOpen { return }
+        if alreadyOpen {
+            request("updates-state") { [weak self] model in
+                if let model = model, model["ok"] as? Bool == true { self?.buildUpdates(model) }
+            }
+            return
+        }
         request("settings-state") { [weak self] model in
             guard let self = self else { return }
             guard let model = model, let sections = model["tabs"] as? [[String: Any]] else {
@@ -158,16 +180,76 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate, NSWindowDel
             tabs.addTabViewItem(item)
         }
         if let selected = selected { tabs.selectTabViewItem(withIdentifier: selected) }
+        request("updates-state") { [weak self] model in
+            if let model = model, model["ok"] as? Bool == true { self?.buildUpdates(model) }
+        }
         status.stringValue = "Changes are saved automatically."
         window?.recalculateKeyViewLoop()
         if let path = ProcessInfo.processInfo.environment["JELLYFIN_PLAYER_MENU_DIAGNOSTICS"] {
             let diagnostic: [String: Any] = ["native": true,
                 "windowTitle": window?.title ?? "", "visible": window?.isVisible == true,
-                "tabs": tabs.tabViewItems.map(\.label), "fields": fields.count]
+                "tabs": tabs.tabViewItems.map(\.label), "fields": fields.count,
+                "fieldKeys": Array(fields.keys).sorted(), "updater": updateState]
             if let data = try? JSONSerialization.data(withJSONObject: diagnostic) {
                 try? data.write(to: URL(fileURLWithPath: path).appendingPathComponent("settings.json"), options: .atomic)
             }
         }
+    }
+
+    private func buildUpdates(_ model: [String: Any]) {
+        updateState = model
+        if tabs.tabViewItems.contains(where: { $0.identifier as? String == "updates" }) {
+            updateChecks?.state = model["checks"] as? Bool == true ? .on : .off
+            updateDownloads?.state = model["downloads"] as? Bool == true ? .on : .off
+            updateDownloads?.isEnabled = model["allowsDownloads"] as? Bool == true
+            updateNow?.isEnabled = model["canCheck"] as? Bool == true
+            updateLastCheck?.stringValue = "Last checked: \(model["lastCheck"] as? String ?? "Never")"
+            return
+        }
+        let item = NSTabViewItem(identifier: "updates")
+        item.label = "Updates"
+        let version = NSTextField(labelWithString: "Jellyfin Player \(model["version"] as? String ?? "")")
+        version.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+        let checks = NSButton(checkboxWithTitle: "Automatically check for updates", target: self, action: #selector(updatePreference(_:)))
+        checks.identifier = NSUserInterfaceItemIdentifier("checks")
+        checks.state = model["checks"] as? Bool == true ? .on : .off
+        let downloads = NSButton(checkboxWithTitle: "Automatically download and install updates", target: self, action: #selector(updatePreference(_:)))
+        downloads.identifier = NSUserInterfaceItemIdentifier("downloads")
+        downloads.state = model["downloads"] as? Bool == true ? .on : .off
+        downloads.isEnabled = model["allowsDownloads"] as? Bool == true
+        let check = NSButton(title: "Check for Updates…", target: self, action: #selector(checkForUpdates(_:)))
+        check.isEnabled = model["canCheck"] as? Bool == true
+        let last = NSTextField(labelWithString: "Last checked: \(model["lastCheck"] as? String ?? "Never")")
+        last.textColor = .secondaryLabelColor
+        updateChecks = checks
+        updateDownloads = downloads
+        updateNow = check
+        updateLastCheck = last
+        let rows = NSStackView(views: [version, checks, downloads, check, last])
+        rows.orientation = .vertical
+        rows.alignment = .leading
+        rows.spacing = 16
+        rows.translatesAutoresizingMaskIntoConstraints = false
+        let view = NSView()
+        view.addSubview(rows)
+        NSLayoutConstraint.activate([
+            rows.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            rows.topAnchor.constraint(equalTo: view.topAnchor, constant: 24),
+            rows.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -20)
+        ])
+        item.view = view
+        tabs.addTabViewItem(item)
+    }
+
+    @objc private func updatePreference(_ sender: NSButton) {
+        guard let key = sender.identifier?.rawValue else { return }
+        request("updates-\(key):\(sender.state == .on ? "on" : "off")") { [weak self] model in
+            if let model = model, model["ok"] as? Bool == true { self?.buildUpdates(model) }
+        }
+    }
+
+    @objc private func checkForUpdates(_ sender: NSButton) {
+        request("updates-check") { _ in }
     }
 
     func controlTextDidEndEditing(_ notification: Notification) {

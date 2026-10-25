@@ -230,7 +230,11 @@ def verify_native_settings_and_accessibility(host_pid, owner_pid, evidence):
     while time.monotonic() < deadline:
         try:
             settings = json.loads((evidence / 'native-menus/settings.json').read_text())
-            if settings.get('native') and settings.get('visible') and settings.get('tabs') == ['General', 'Browse', 'Playback'] and settings.get('fields', 0) > 0:
+            if settings.get('native') and settings.get('visible') and settings.get('tabs') == ['General', 'Browse', 'Playback', 'Updates'] and settings.get('fields', 0) > 0:
+                if {'check_updates', 'notify_updates'} & set(settings.get('fieldKeys', [])):
+                    raise RuntimeError('native Settings still exposes the retired upstream update controls')
+                if not settings.get('updater', {}).get('ok') or not isinstance(settings['updater'].get('checks'), bool):
+                    raise RuntimeError('native update preferences are not connected to the live Sparkle updater')
                 break
         except (OSError, ValueError):
             pass
@@ -342,6 +346,44 @@ def verify_gear_menu(endpoint, evidence):
     return {'name': 'complete renderer survives gear menu opening, selection and return to controls', 'passed': True}
 
 
+def verify_header_fill(endpoint, evidence):
+    from jellyfin_mpv_shim.mpvtk.widgets import Row, Stack, Button
+    from jellyfin_mpv_shim.mpvtk.layout import layout
+    from local_compat import patch_title_header
+    header = Row([Button('Back', id='smoke-back', on_click=lambda: None)],
+                 id='hud-topbar', w=800, h=80, window_drag=False)
+    tree = Stack([header])
+    patch_title_header(tree)
+    nodes, _ = layout(tree, 800, 600)
+    ipc_command(endpoint, ['set_property', 'keepaspect-window', False])
+    ipc_command(endpoint, ['script-message', 'mpvtk-scene', json.dumps(dict(v=1, w=800, h=600, nodes=nodes))])
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        model = ipc_property(endpoint, 'user-data/jellyfin-accessibility') or {}
+        if any(n['id'] == 'smoke-back' for n in model.get('nodes', [])):
+            break
+        time.sleep(.1)
+    else:
+        raise RuntimeError('header scene did not reach the installed renderer')
+    transitions = []
+    for filled in (True, False):
+        previous = ipc_property(endpoint, 'user-data/jellyfin-window-geometry') or {}
+        ipc_command(endpoint, ['script-message', 'mpvtk-debug', json.dumps(dict(cmd='dbl', id='hud-topbar'))])
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            geometry = ipc_property(endpoint, 'user-data/jellyfin-window-geometry') or {}
+            if geometry.get('request') != previous.get('request') and geometry.get('filled') is filled:
+                transitions.append(geometry)
+                break
+            time.sleep(.1)
+        else:
+            raise RuntimeError(f'header double-click did not fill/restore the installed player: {geometry}')
+    if any(abs(a-b) > 2 for a, b in zip(transitions[0]['before'], transitions[1]['frame'])):
+        raise RuntimeError('header double-click did not restore the previous position and size')
+    (evidence / 'header-fill.json').write_text(json.dumps(transitions, indent=2) + '\n')
+    return {'name': 'complete renderer title-header double-click fills the desktop and restores its frame', 'passed': True}
+
+
 def verify_playback(player, env, evidence):
     # A finite Y4M clip exercises the demuxer/decoder without a network service,
     # ffmpeg executable, audio device, or third-party test dependency.
@@ -388,9 +430,10 @@ def verify_playback(player, env, evidence):
                                     time.sleep(0.2)
                                     continue
                                 gear = verify_gear_menu(endpoint, evidence)
+                                header = verify_header_fill(endpoint, evidence)
                                 return {'name': 'bundled mpv decodes video and advances playback',
                                         'passed': True, 'videoParams': params, 'timePositions': [first, second],
-                                        'videoOutput': vo, 'runtimeBranding': identity, 'gear_menu': gear}
+                                        'videoOutput': vo, 'runtimeBranding': identity, 'gear_menu': gear, 'header_fill': header}
                     except (OSError, ValueError):
                         pass
                     time.sleep(0.2)

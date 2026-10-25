@@ -40,6 +40,8 @@ struct VerifyNativeMenus {
         application.performActionForItem(at: application.numberOfItems - 1)
         precondition(quit)
         var requests: [String] = []
+        var automaticChecks = true
+        var updateBusy = false
         let preferences = NativeSettings { command, completion in
             requests.append(command)
             if command == "settings-state" {
@@ -48,6 +50,11 @@ struct VerifyNativeMenus {
                         ["key": "enabled", "title": "Enabled", "kind": "bool", "value": true],
                         ["key": "speed", "title": "Speed", "kind": "float", "value": 1.25],
                         ["key": "choice", "title": "Choice", "kind": "str", "value": "b", "options": [["A", "a"], ["B", "b"]]]]]]]]])
+            } else if command.hasPrefix("updates-") {
+                if command == "updates-checks:off" { automaticChecks = false }
+                if command == "updates-check" { updateBusy = true }
+                completion(["ok": true, "checks": automaticChecks, "downloads": false,
+                            "allowsDownloads": true, "canCheck": !updateBusy, "version": "0.2.9", "lastCheck": "Never"])
             } else { completion(["ok": true]) }
         }
         preferences.open()
@@ -61,6 +68,21 @@ struct VerifyNativeMenus {
         precondition(popup.titleOfSelectedItem == "B" && text.stringValue == "1.25")
         checkbox.performClick(nil)
         precondition(requests.last!.hasPrefix("settings-set:"))
+        let tabs = preferences.window!.contentView!.subviews.flatMap { $0.subviews }.first { $0 is NSTabView } as! NSTabView
+        tabs.selectTabViewItem(withIdentifier: "updates")
+        let updateControls = controls(preferences.window!.contentView!)
+        let checks = updateControls.first { $0.identifier?.rawValue == "checks" } as! NSButton
+        precondition(checks.state == .on)
+        checks.performClick(nil)
+        precondition(requests.last == "updates-checks:off")
+        let checkNow = controls(preferences.window!.contentView!).compactMap { $0 as? NSButton }.first { $0.title == "Check for Updates…" }!
+        checkNow.performClick(nil)
+        precondition(requests.last == "updates-check")
+        preferences.open()
+        precondition(!checkNow.isEnabled && checks.state == .off)
+        updateBusy = false
+        preferences.open()
+        precondition(checkNow.isEnabled)
         precondition(preferences.window?.windowController === preferences)
         preferences.close()
         let icon = NSImage(size: NSSize(width: 64, height: 64))

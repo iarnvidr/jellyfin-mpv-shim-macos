@@ -39,6 +39,11 @@ def check():
 
 def show_updater():
     """Open packaged Sparkle helper, passing the containing app as application bundle."""
+    host = int(os.environ.get('JELLYFIN_PLAYER_HOST_PID', '0'))
+    if host > 1:
+        import signal
+        os.kill(host, signal.SIGALRM)
+        return
     app = main_bundle()
     if app is None:
         raise RuntimeError('Cannot locate the main application bundle for Sparkle.')

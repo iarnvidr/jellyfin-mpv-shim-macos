@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'work'))
 from mac_menu import NativeMenus
-from local_compat import patch_renderer
+from local_compat import patch_renderer, patch_title_header
 
 
 def entries(model):
@@ -79,6 +79,16 @@ class NativeMenuTests(unittest.TestCase):
         original = source.read_text()
         self.assertIn('state.mouse.down = true; on_rclick()', original)
         self.assertNotIn('state.mouse.down = true; on_rclick()', patch_renderer(original))
+
+    def test_playback_header_is_draggable_with_native_chrome_and_no_scrim(self):
+        from jellyfin_mpv_shim.mpvtk.widgets import Row, Stack, Text, Button
+        from jellyfin_mpv_shim.mpvtk.layout import layout
+        header = Row([Text('Monk'), Button('Back', on_click=lambda: None)],
+                     id='hud-topbar', w=800, h=80, window_drag=False)
+        tree = Stack([header])
+        patch_title_header(tree)
+        nodes, _ = layout(tree, 800, 600)
+        self.assertTrue(next(n for n in nodes if n['id'] == 'hud-topbar')['wdrag'])
 
     def test_loading_player_does_not_block_menu_polling_or_queue_stale_actions(self):
         locked, release = threading.Event(), threading.Event()

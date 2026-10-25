@@ -25,6 +25,27 @@ extern void JellyfinInstallNativeMenus(void);
 extern void JellyfinClosePlayerWindow(void);
 static void writeCommand(NSArray *command);
 
+static char restoreFrameKey;
+static BOOL sameFrame(NSRect a, NSRect b) {
+    return fabs(a.origin.x-b.origin.x) < 2 && fabs(a.origin.y-b.origin.y) < 2 &&
+           fabs(a.size.width-b.size.width) < 2 && fabs(a.size.height-b.size.height) < 2;
+}
+
+static void fillPlayerWindow(NSWindow *window) {
+    if (!window || (window.styleMask & NSWindowStyleMaskFullScreen)) return;
+    NSScreen *screen = window.screen ?: NSScreen.mainScreen;
+    if (!screen) return;
+    NSRect available = screen.visibleFrame;
+    NSValue *restore = objc_getAssociatedObject(window, &restoreFrameKey);
+    if (restore && sameFrame(window.frame, available)) {
+        [window setFrame:restore.rectValue display:YES];
+        objc_setAssociatedObject(window, &restoreFrameKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    } else {
+        objc_setAssociatedObject(window, &restoreFrameKey, [NSValue valueWithRect:window.frame], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [window setFrame:available display:YES];
+    }
+}
+
 static void ignoreEngineNowPlayingInfo(id center, SEL selector, NSDictionary *info) {}
 static void ignoreEnginePlaybackState(id center, SEL selector, MPNowPlayingPlaybackState state) {}
 
@@ -294,7 +315,16 @@ static void connectSocket(void) {
                         notifyAppHost(SIGWINCH);
                         for (NSWindow *window in NSApp.windows) if (window.canBecomeMainWindow) [window orderOut:nil];
                     }
-                    if ([action isEqualToString:@"zoom"]) [NSApp.mainWindow performZoom:nil];
+                    if ([action isEqualToString:@"zoom"]) {
+                        NSWindow *window = NSApp.mainWindow;
+                        NSRect before = window.frame;
+                        fillPlayerWindow(window);
+                        NSRect frame = window.frame, available = window.screen.visibleFrame;
+                        NSDictionary *geometry = @{@"request": request, @"filled": @(sameFrame(frame, available)),
+                            @"before": @[@(before.origin.x), @(before.origin.y), @(before.size.width), @(before.size.height)],
+                            @"frame": @[@(frame.origin.x), @(frame.origin.y), @(frame.size.width), @(frame.size.height)]};
+                        dispatch_async(ioQueue, ^{ writeCommand(@[@"set_property", @"user-data/jellyfin-window-geometry", geometry]); });
+                    }
                     if ([action isEqualToString:@"show"]) {
                         [NSApp unhide:nil];
                         [NSApp activateIgnoringOtherApps:YES];
@@ -386,6 +416,20 @@ __attribute__((constructor)) static void installNativeScrolling(void) {
             [NSEvent addLocalMonitorForEventsMatchingMask:(NSEventMaskRightMouseDown | NSEventMaskRightMouseUp | NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp) handler:^NSEvent *(NSEvent *event) {
                 if (event.type == NSEventTypeRightMouseDown || event.type == NSEventTypeRightMouseUp ||
                     (event.modifierFlags & NSEventModifierFlagControl)) return nil;
+                // The engine's native title bar otherwise performs video-aspect
+                // zoom. Use the same fill/restore behavior as our drawn header.
+                if ((event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeLeftMouseUp) && event.clickCount == 2 && event.window &&
+                    !(event.window.styleMask & NSWindowStyleMaskFullScreen)) {
+                    NSRect content = [event.window convertRectToScreen:event.window.contentLayoutRect];
+                    NSPoint point = [event.window convertPointToScreen:event.locationInWindow];
+                    if (point.y >= NSMaxY(content)) {
+                        if (event.type == NSEventTypeLeftMouseUp) return nil;
+                        NSString *action = [NSUserDefaults.standardUserDefaults stringForKey:@"AppleActionOnDoubleClick"];
+                        if ([action isEqualToString:@"Minimize"]) [event.window performMiniaturize:nil];
+                        else if (![action isEqualToString:@"None"]) fillPlayerWindow(event.window);
+                        return nil;
+                    }
+                }
                 return event;
             }];
             [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskScrollWheel handler:^NSEvent *(NSEvent *event) {
