@@ -11,6 +11,8 @@ def qualified_appcast(directory, current_feed, current_commit, version):
     records = {mode: json.loads((directory / mode / 'result.json').read_text())
                for mode in ('legacy', 'current-host')}
     for mode, record in records.items():
+        if record.get('fixture_feed'):
+            raise ValueError(f'{mode}: fixture feed evidence cannot be published')
         if record.get('passed') is not True or record.get('to') != version or record.get('mode') != mode:
             raise ValueError(f'{mode}: installation qualification is incomplete')
         if record.get('after_signatures', {}).get('valid') is not True:

@@ -47,7 +47,11 @@ jobs:
           version: '0.13.1'
       - run: uv python install
       - name: Verify legacy delivery and one-time manual reopen
+        if: github.event_name != 'pull_request'
         run: uv run --locked --no-sync python scripts/sparkle_smoke.py --legacy-install-only --to-version "$TO_VERSION"
+      - name: Verify historical delivery using an isolated fixture feed
+        if: github.event_name == 'pull_request'
+        run: uv run --locked --no-sync python scripts/sparkle_smoke.py --legacy-install-only --fixture-feed --to-version "$TO_VERSION"
       - name: Verify current host automatic installation and relaunch
         if: github.event_name != 'pull_request'
         run: uv run --locked --no-sync python scripts/sparkle_smoke.py --current-host-fixture --to-version "$TO_VERSION"

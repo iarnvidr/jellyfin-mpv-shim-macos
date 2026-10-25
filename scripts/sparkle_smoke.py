@@ -30,6 +30,14 @@ def command(*args, **kwargs):
     return subprocess.run(list(map(str, args)), check=True, **kwargs)
 
 
+def installation_appcast(existing, metadata, fixture_feed=False):
+    # Historical releases remain testable after newer versions reach the live feed.
+    # Fixture evidence is explicitly ineligible for publication.
+    if fixture_feed:
+        existing = b'<rss version="2.0"><channel/></rss>'
+    return release.update_feed(existing, metadata, 'v' + metadata['version'])
+
+
 def download(url, destination):
     request = urllib.request.Request(url, headers={'User-Agent': 'Jellyfin-Player-update-test'})
     with urllib.request.urlopen(request, timeout=120) as response, destination.open('wb') as out:
@@ -81,6 +89,8 @@ def main():
     parser.add_argument('--to-version', default='0.2.2')
     parser.add_argument('--legacy-install-only', action='store_true')
     parser.add_argument('--current-host-fixture', action='store_true')
+    parser.add_argument('--fixture-feed', action='store_true',
+                        help='Use an isolated feed for historical installation tests; cannot publish')
     args = parser.parse_args()
     args.to_version = args.to_version.removeprefix('v')
     if args.current_host_fixture:
@@ -93,7 +103,8 @@ def main():
     evidence = ROOT / 'outputs/sparkle-smoke-evidence' / mode
     evidence.mkdir(parents=True, exist_ok=True)
     result = {'from': args.from_version, 'to': args.to_version, 'passed': False,
-              'mode': mode, 'manual_reopen': args.legacy_install_only}
+              'mode': mode, 'manual_reopen': args.legacy_install_only,
+              'fixture_feed': args.fixture_feed}
     old_pid = None
     created_profile = False
     server = None
@@ -155,7 +166,7 @@ def main():
                         'asset_url': release.ASSET_ROOT + f'v{args.to_version}/' + new_archive.name,
                         'feed_url': release.FEED_URL,
                         'release_notes': f'<a href="https://github.com/iarnvidr/jellyfin-mpv-shim-macos/releases/tag/v{args.to_version}">View release notes</a>'}
-            candidate = release.update_feed(existing, metadata, 'v' + args.to_version)
+            candidate = installation_appcast(existing, metadata, args.fixture_feed)
             (feed / 'appcast.xml').write_bytes(candidate)
             (evidence / 'candidate-appcast.xml').write_bytes(candidate)
             result.update(metadata=metadata, base_feed_commit=base_commit,
