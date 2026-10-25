@@ -45,7 +45,7 @@ def legacy_owner(endpoint):
         return {'pid': 'unknown', 'app': 'unknown application', 'version': 'unknown'}
 
 
-def install(executable, activation_check=None):
+def install(executable, activation_check=None, menu_handler=None):
     from jellyfin_mpv_shim import single_instance
     original = single_instance.SingleInstance
     identity = app_identity(executable)
@@ -110,12 +110,23 @@ def install(executable, activation_check=None):
         def _serve_one(self, conn):
             try:
                 conn.settimeout(3)
-                data = conn.recv(64)
+                data = b''
+                while b'\n' not in data and len(data) < 4096:
+                    chunk = conn.recv(min(512, 4096 - len(data)))
+                    if not chunk: return
+                    data += chunk
+                if b'\n' not in data: return
                 if not data.startswith(single_instance._MAGIC): return
-                parts = data[len(single_instance._MAGIC):].strip().split()
+                parts = data[len(single_instance._MAGIC):].strip().split(maxsplit=2)
                 if not parts or parts[0] != self._token: return
                 command = parts[1] if len(parts) > 1 else b'SHOW'
-                if command == b'STOP':
+                if command == b'MENU' and menu_handler and len(parts) == 3:
+                    request = json.loads(parts[2])
+                    action = request.get('command')
+                    if not isinstance(action, str): return
+                    result = menu_handler(action)
+                    conn.sendall(single_instance._MAGIC + json.dumps(result).encode() + b'\n')
+                elif command == b'STOP':
                     conn.sendall(single_instance._MAGIC+b'OK')
                     self.on_stop()
                 elif command == b'SHOW' and self.on_activate is not self._initial_activation:

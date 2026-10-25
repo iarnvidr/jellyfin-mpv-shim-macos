@@ -51,14 +51,18 @@ def launch():
 
     Settings.load = load
     import mac_single_instance
+    import mac_menu
     import startup
-    guard_class = mac_single_instance.install(app_contents / 'MacOS/Jellyfin Player', activation_check=lambda: startup.WINDOW_ACTIVATION)
+    guard_class = mac_single_instance.install(app_contents / 'MacOS/Jellyfin Player',
+        activation_check=lambda: startup.WINDOW_ACTIVATION, menu_handler=mac_menu.request)
     try:
         from jellyfin_mpv_shim.args import get_args
         if 'stop' not in get_args().command:
             guard = guard_class()
             if not guard.acquire():
                 return
+            os.environ['JELLYFIN_PLAYER_MENU_LOCK'] = guard._lockpath
+            os.environ['JELLYFIN_PLAYER_CORE_PID'] = str(os.getpid())
             from jellyfin_mpv_shim import single_instance
             single_instance.SingleInstance = lambda: guard
         # Settings.load can migrate/save before upstream acquires its guard.

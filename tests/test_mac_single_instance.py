@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import plistlib
 import sys
+import socket
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -120,3 +121,18 @@ class MacInstanceUpgrade(unittest.TestCase):
         Path(self.guard).write_text('\n'.join([*lines[:2],json.dumps(metadata)])+'\n')
         with self.assertRaisesRegex(StartupFailure,'/Volumes/Installer'):
             self.instance().acquire()
+
+    def test_native_menu_protocol_authenticates_and_handles_fragmented_requests(self):
+        calls = []
+        single_instance.SingleInstance = self.original
+        cls = mac_single_instance.install(self.root/'Jellyfin Player.app/Contents/MacOS/Jellyfin Player',
+            menu_handler=lambda command: calls.append(command) or {'ok': True})
+        primary = self.instance(cls)
+        self.assertTrue(primary.acquire())
+        port, token = primary._read_lock()
+        for credential, expected in [(b'wrong', b''), (token, b'JMS1{"ok": true}\n')]:
+            with socket.create_connection(('127.0.0.1', port), timeout=2) as connection:
+                connection.sendall(b'JMS1' + credential + b' MENU {"comm')
+                connection.sendall(b'and":"settings"}\n')
+                self.assertEqual(connection.recv(256), expected)
+        self.assertEqual(calls, ['settings'])

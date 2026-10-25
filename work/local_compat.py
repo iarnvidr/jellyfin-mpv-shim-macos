@@ -22,6 +22,8 @@ def patch_volume_persistence(player):
 
 def patch_renderer(text):
     replacements = [
+        ('function() state.mouse.down = true; on_rclick() end',
+         'function() state.mouse.down = nil end'),
         ('if scale <= 0 then scale = 1 end', 'if scale <= 0 then return end'),
         ('if wprev then\n        local slot',
          'if wprev and (state.force_snap or state.snapped) then\n        local slot'),

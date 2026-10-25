@@ -13,7 +13,7 @@ on:
       to_version:
         description: Published version to qualify
         required: true
-        default: '0.2.4'
+        default: '0.2.5'
         type: string
       publish:
         description: Publish the feed after both installation checks pass

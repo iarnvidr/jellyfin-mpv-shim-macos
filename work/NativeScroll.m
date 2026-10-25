@@ -18,6 +18,7 @@ static NSMutableData *inputBuffer;
 static int gestureAxis = 0;
 static NSTimeInterval lastScrollTime = 0;
 static NSDictionary *branding;
+extern void JellyfinInstallNativeMenus(void);
 
 static void notifyAppHost(int signalNumber) {
     int host = [NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_HOST_PID"] intValue];
@@ -74,6 +75,7 @@ static void applyPlayerBranding(void) {
                  // deviation, rather than requiring identical antialiasing.
                  @"iconPixelMeanError": @(iconError),
                  @"iconMatchesJellyfin": @((BOOL)(iconError <= 2.0))};
+    JellyfinInstallNativeMenus();
 }
 
 static void disconnectSocket(void) {
@@ -196,6 +198,13 @@ __attribute__((constructor)) static void installNativeScrolling(void) {
         dispatch_source_set_event_handler(retryTimer, ^{ connectSocket(); });
         dispatch_resume(retryTimer);
         dispatch_async(dispatch_get_main_queue(), ^{
+            // macOS uses the menu bar for these actions. Do not let either
+            // mpvtk or mpv's fallback bindings open a right-click menu.
+            [NSEvent addLocalMonitorForEventsMatchingMask:(NSEventMaskRightMouseDown | NSEventMaskRightMouseUp | NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp) handler:^NSEvent *(NSEvent *event) {
+                if (event.type == NSEventTypeRightMouseDown || event.type == NSEventTypeRightMouseUp ||
+                    (event.modifierFlags & NSEventModifierFlagControl)) return nil;
+                return event;
+            }];
             [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskScrollWheel handler:^NSEvent *(NSEvent *event) {
                 if (!event.hasPreciseScrollingDeltas || !atomic_load(&scrollEnabled) || !event.window) return event;
                 NSView *view = event.window.contentView;

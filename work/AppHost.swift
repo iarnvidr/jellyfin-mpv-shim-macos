@@ -10,18 +10,10 @@ final class AppHost: NSObject, NSApplicationDelegate {
     private var core: Process?
     private var stopping = false
     private var signals: [DispatchSourceSignal] = []
+    private var menus: NativeMenuSession?
     private let arguments = Array(CommandLine.arguments.dropFirst())
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let menu = NSMenu()
-        let application = NSMenuItem()
-        let commands = NSMenu()
-        commands.addItem(withTitle: "Quit Jellyfin Player", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        commands.addItem(withTitle: "Hide Jellyfin Player", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        application.submenu = commands
-        menu.addItem(application)
-        NSApp.mainMenu = menu
-
         let process = Process()
         process.executableURL = Bundle.main.bundleURL.appendingPathComponent(
             "Contents/Helpers/Jellyfin Player Core.app/Contents/MacOS/Jellyfin Player Core")
@@ -45,6 +37,8 @@ final class AppHost: NSObject, NSApplicationDelegate {
         do {
             try process.run()
             core = process
+            menus = NativeMenuSession(lock: profileURL.appendingPathComponent("instance.lock"),
+                                      corePID: Int(process.processIdentifier)) { NSApp.terminate(nil) }
         } catch {
             let alert = NSAlert()
             alert.messageText = "Jellyfin Player could not start"
@@ -104,12 +98,17 @@ final class AppHost: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showPlayer() {
-        guard !NSApp.isHidden, !stopping, let core = core, core.isRunning else { return }
+    private var profileURL: URL {
         var profile = URL(fileURLWithPath: "/Users/\(NSUserName())/Library/Application Support/jellyfin-mpv-shim")
         if let index = arguments.firstIndex(of: "--config"), index + 1 < arguments.count {
             profile = URL(fileURLWithPath: arguments[index + 1])
         }
+        return profile
+    }
+
+    private func showPlayer() {
+        guard !NSApp.isHidden, !stopping, let core = core, core.isRunning else { return }
+        let profile = profileURL
         guard let text = try? String(contentsOf: profile.appendingPathComponent("instance.lock"), encoding: .utf8) else { return }
         let lines = text.components(separatedBy: .newlines)
         guard lines.count >= 3, let port = UInt16(lines[0]),
@@ -131,8 +130,13 @@ final class AppHost: NSObject, NSApplicationDelegate {
     }
 }
 
-let app = NSApplication.shared
-app.setActivationPolicy(.regular)
-let host = AppHost()
-app.delegate = host
-app.run()
+@main
+struct JellyfinApplication {
+    static func main() {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+        let host = AppHost()
+        app.delegate = host
+        app.run()
+    }
+}

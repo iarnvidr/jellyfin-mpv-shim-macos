@@ -108,6 +108,27 @@ def wait_for_browser(config):
     else: raise RuntimeError('main browser never acknowledged window activation')
 
 
+def verify_native_menus(directory, pids):
+    expected = ['File', 'Edit', 'Playback', 'Audio', 'Subtitles', 'Video', 'Window', 'Help']
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        records = []
+        for pid in pids:
+            try:
+                record = json.loads((directory / f'{pid}.json').read_text())
+                if record.get('model', {}).get('ready') and record.get('menus') == expected:
+                    commands = {item.get('command') for item in record['model']['application']}
+                    if {'settings', 'updates'} <= commands:
+                        records.append(record)
+            except (OSError, ValueError):
+                pass
+        if len(records) == len(pids):
+            return {'name': 'native menu bar in Dock host and video-window owner',
+                    'passed': True, 'pids': list(pids), 'menus': expected}
+        time.sleep(.2)
+    raise RuntimeError('the installed host/player did not create the native menu bar; see native-menus evidence')
+
+
 def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid, evidence):
     transitions=[]
     def record(phase, engine, host):
@@ -295,7 +316,8 @@ def main():
     (evidence/'signatures.json').write_text(json.dumps(signature_report,indent=2)+'\n')
     player=moved/'Contents/Resources/mpv.app/Contents/MacOS/mpv'
     inherited={**os.environ,'HOME':str(home),'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','TMPDIR':str(base),'LANG':'en_US.UTF-8','LC_ALL':'en_US.UTF-8'}
-    env={**inherited,'DYLD_PRINT_LIBRARIES':'1'}
+    env={**inherited,'DYLD_PRINT_LIBRARIES':'1',
+         'JELLYFIN_PLAYER_MENU_DIAGNOSTICS':str((evidence/'native-menus').resolve())}
     result={'host':run(['/usr/bin/sw_vers']).stdout,'app':str(moved),'profile':str(home),'tests':[]}
     helper=moved/'Contents/Helpers/Mac Updater.app/Contents/MacOS/Mac Updater'
     if not helper.is_file(): raise RuntimeError(f'updater executable missing: {helper}')
@@ -365,6 +387,7 @@ def main():
             raise RuntimeError(f'player has the wrong running-app name: {state["localizedName"]}')
         if state.get('windowNames') and not any('Jellyfin Player' in name for name in state['windowNames']):
             raise RuntimeError(f'player has the wrong visible window title: {state["windowNames"]}')
+        result['tests'].append(verify_native_menus(evidence/'native-menus', {proc.pid, state['pid']}))
         shot=run(['/usr/sbin/screencapture','-x',str(evidence/'player.png')],timeout=20)
         result['tests'].append({'name':'screen capture', 'status':'captured' if shot.returncode == 0 else 'unavailable', 'message':shot.stderr})
         result['tests'].append({'name':'native app liveness and ownerPID window','launcherPID':proc.pid,'ownerPID':state['pid'],'ownerDetails':owner_details,'windowCount':windows,'passed':True})

@@ -10,6 +10,8 @@ This is a preview for **Apple Silicon (arm64), macOS 15.7.9 or later**. Native m
 
 Jellyfin Player uses the Dock and Command-Tab. If another installed version holds the shared settings lock, a dialog identifies it and asks you to quit it. Startup failures offer **Copy Diagnostics** and **Open Logs**.
 
+Use the native macOS menu bar for playback, audio tracks, subtitles, video options, and window controls. **Jellyfin Player → Settings…** (Command-comma) opens settings, and **Check for Updates…** opens Sparkle. The player's right-click and Control-click menus are removed.
+
 Sparkle checks the repository's GitHub-hosted appcast and downloads complete app updates from GitHub Releases. The feed includes version 0.2.3, which passed native CI checks for legacy installation and current-host automatic installation and relaunch. Feed publication requires both checks to pass for each new release.
 
 ## Build and checks (maintainers)
