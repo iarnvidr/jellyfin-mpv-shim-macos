@@ -1,5 +1,7 @@
 // Preserve AppKit's pixel deltas, gesture phases and system momentum.
 #import <Cocoa/Cocoa.h>
+#import <MediaPlayer/MediaPlayer.h>
+#import <objc/runtime.h>
 #import <sys/socket.h>
 #import <sys/un.h>
 #import <fcntl.h>
@@ -22,6 +24,22 @@ static NSDictionary *branding;
 extern void JellyfinInstallNativeMenus(void);
 extern void JellyfinClosePlayerWindow(void);
 static void writeCommand(NSArray *command);
+
+static void ignoreEngineNowPlayingInfo(id center, SEL selector, NSDictionary *info) {}
+static void ignoreEnginePlaybackState(id center, SEL selector, MPNowPlayingPlaybackState state) {}
+
+static void suppressEngineNowPlaying(void) {
+    // The pinned mpv keeps publishing metadata from property observers even
+    // with input-media-keys=no. Suppress its public MediaPlayer setters in
+    // this engine process; the separate Dock host owns the real publisher.
+    Method info = class_getInstanceMethod(MPNowPlayingInfoCenter.class, @selector(setNowPlayingInfo:));
+    Method state = class_getInstanceMethod(MPNowPlayingInfoCenter.class, @selector(setPlaybackState:));
+    if (method_getImplementation(info) == (IMP)ignoreEngineNowPlayingInfo) return;
+    MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = nil;
+    MPNowPlayingInfoCenter.defaultCenter.playbackState = MPNowPlayingPlaybackStateStopped;
+    method_setImplementation(info, (IMP)ignoreEngineNowPlayingInfo);
+    method_setImplementation(state, (IMP)ignoreEnginePlaybackState);
+}
 
 @interface JellyfinWindowControls : NSObject
 - (void)closePlayer:(id)sender;
@@ -198,7 +216,9 @@ static void applyPlayerBranding(void) {
                  // AppKit resamples Dock icons. Allow less than 1% mean RGBA
                  // deviation, rather than requiring identical antialiasing.
                  @"iconPixelMeanError": @(iconError),
-                 @"iconMatchesJellyfin": @((BOOL)(iconError <= 2.0))};
+                 @"iconMatchesJellyfin": @((BOOL)(iconError <= 2.0)),
+                 @"engineNowPlayingSuppressed": @(method_getImplementation(class_getInstanceMethod(
+                     MPNowPlayingInfoCenter.class, @selector(setNowPlayingInfo:))) == (IMP)ignoreEngineNowPlayingInfo)};
     JellyfinInstallNativeMenus();
 }
 
@@ -340,6 +360,7 @@ __attribute__((constructor)) static void installNativeScrolling(void) {
         dispatch_source_set_event_handler(retryTimer, ^{ connectSocket(); });
         dispatch_resume(retryTimer);
         dispatch_async(dispatch_get_main_queue(), ^{
+            suppressEngineNowPlaying();
             [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
                 if (!atomic_load(&textFocused)) return event;
                 NSEventModifierFlags modifiers = event.modifierFlags;

@@ -22,7 +22,7 @@ jobs:
         run: |
           xcrun swiftc work/NativeMenus.swift work/NativeSettings.swift work/NativeMedia.swift tests/native/VerifyNativeMenus.swift -o /tmp/verify-native-menus -framework AppKit -framework MediaPlayer
           /tmp/verify-native-menus
-          xcrun clang -fobjc-arc tests/native/VerifyNativeControls.m -o /tmp/verify-native-controls -framework Cocoa
+          xcrun clang -fobjc-arc tests/native/VerifyNativeControls.m -o /tmp/verify-native-controls -framework Cocoa -framework MediaPlayer
           /tmp/verify-native-controls
       - uses: astral-sh/setup-uv@v6
         with:

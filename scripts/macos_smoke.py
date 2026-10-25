@@ -382,7 +382,9 @@ def verify_playback(player, env, evidence):
                             vo = ipc_property(endpoint, 'current-vo')
                             observed={'params':params,'first':first,'second':second,'identity':identity,'vo':vo}
                             if isinstance(second, (int, float)) and second > first and vo == 'gpu-next':
-                                if not isinstance(identity, dict) or identity.get('name') != 'Jellyfin Player' or identity.get('iconMatchesJellyfin') is not True:
+                                if (not isinstance(identity, dict) or identity.get('name') != 'Jellyfin Player'
+                                        or identity.get('iconMatchesJellyfin') is not True
+                                        or identity.get('engineNowPlayingSuppressed') is not True):
                                     time.sleep(0.2)
                                     continue
                                 gear = verify_gear_menu(endpoint, evidence)
