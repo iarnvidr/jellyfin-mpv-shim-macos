@@ -26,7 +26,8 @@ if digest(sparkle)!=LOCK['SPARKLE_SHA256']: raise SystemExit('Sparkle SHA-256 mi
 command('tar','-xf',str(sparkle),'-C',str(WORK))
 stage('compile native components')
 command(swiftc,str(WORK/'Updater.swift'),'-o',str(WORK/'Mac Updater'),'-F',str(WORK),'-framework','AppKit','-framework','Sparkle','-Xlinker','-rpath','-Xlinker','@executable_path/../../../../Frameworks')
-command(clang,'-dynamiclib','-fobjc-arc','-fblocks',str(WORK/'NativeScroll.m'),'-o',str(WORK/'native-scroll.dylib'),'-framework','Cocoa')
+command(clang,'-c','-fPIC','-fobjc-arc','-fblocks',str(WORK/'NativeScroll.m'),'-o',str(WORK/'NativeScroll.o'))
+command(swiftc,'-emit-library',str(WORK/'NativeMenus.swift'),str(WORK/'NativeScroll.o'),'-o',str(WORK/'native-scroll.dylib'),'-framework','Cocoa')
 command(swiftc,str(WORK/'StartupAlert.swift'),'-o',str(WORK/'Jellyfin Player Diagnostics'),'-framework','AppKit')
 metadata=[]
 for d in importlib.metadata.distributions():
@@ -49,7 +50,7 @@ shutil.move(app/'Contents/MacOS'/NAME,core/'MacOS/Jellyfin Player Core')
 for directory in ('Frameworks','Resources'):
  shutil.move(app/'Contents'/directory,core/directory)
  (app/'Contents'/directory).mkdir()
-command(swiftc,str(WORK/'AppHost.swift'),'-o',str(app/'Contents/MacOS'/NAME),'-framework','AppKit')
+command(swiftc,str(WORK/'AppHost.swift'),str(WORK/'NativeMenus.swift'),'-o',str(app/'Contents/MacOS'/NAME),'-framework','AppKit')
 shutil.copy2(WORK/'native-scroll.dylib',app/'Contents/Frameworks/native-scroll.dylib')
 shutil.copy2(WORK/'source/jellyfin.icns',app/'Contents/Resources/jellyfin.icns')
 support=app/'Contents/Resources/mac_support'; support.mkdir(parents=True,exist_ok=True)
@@ -104,7 +105,7 @@ for binary in (app/'Contents/Frameworks/Sparkle.framework').rglob('*'):
   if match and str(app) in match.group(1):
    subprocess.run([install_name_tool,'-change',match.group(1),'@rpath/'+Path(match.group(1)).name,str(binary)],check=True)
 
-for n in ['launch.py','mac_update.py','local_compat.py','player_runtime.py','mac_single_instance.py','startup.py']:
+for n in ['launch.py','mac_update.py','mac_menu.py','local_compat.py','player_runtime.py','mac_single_instance.py','startup.py']:
  if (WORK/n).exists(): shutil.copy2(WORK/n,support/n)
 shutil.copy2(WORK/'source/jellyfin.icns',support/'jellyfin.icns'); (app/'Contents/Frameworks/mac_support').symlink_to('../Resources/mac_support')
 helper=app/'Contents/Helpers/Mac Updater.app/Contents'; helper.joinpath('MacOS').mkdir(parents=True,exist_ok=True); shutil.copy2(WORK/'Mac Updater',helper/'MacOS/Mac Updater')

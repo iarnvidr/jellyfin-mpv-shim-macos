@@ -15,6 +15,10 @@ jobs:
           submodules: recursive
       - name: Verify Apple Silicon runner
         run: test "$(uname -m)" = arm64
+      - name: Verify native menu actions and keyboard equivalents
+        run: |
+          xcrun swiftc work/NativeMenus.swift tests/native/VerifyNativeMenus.swift -o /tmp/verify-native-menus -framework AppKit
+          /tmp/verify-native-menus
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.13.1'
