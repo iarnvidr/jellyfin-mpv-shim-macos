@@ -1,7 +1,8 @@
 #import "../../work/NativeScroll.m"
 
 void JellyfinInstallNativeMenus(void) {}
-void JellyfinClosePlayerWindow(void) {}
+static BOOL closeRequested;
+void JellyfinClosePlayerWindow(void) { closeRequested = YES; }
 
 int main(void) {
     @autoreleasepool {
@@ -10,6 +11,9 @@ int main(void) {
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(100,100,800,600)
             styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
         [window makeKeyAndOrderFront:nil];
+        applyPlayerBranding();
+        [[window standardWindowButton:NSWindowCloseButton] performClick:nil];
+        NSCAssert(closeRequested && window.isVisible, @"Red close button bypassed the core stop/close handler");
         NSDictionary *password = @{@"id": @"password", @"role": @"text", @"label": @"Password",
             @"value": @"", @"secure": @YES, @"enabled": @YES, @"focused": @YES,
             @"x": @20, @"y": @40, @"w": @300, @"h": @40, @"generation": @1};

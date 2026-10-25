@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Exercise moved packaged macOS executables and collect native GUI evidence."""
-import argparse, json, os, pathlib, plistlib, re, shutil, socket, subprocess, sys, tempfile, time
+import argparse, json, os, pathlib, plistlib, re, shutil, signal, socket, subprocess, sys, tempfile, time
 
 TEMP_HOME = None
 
@@ -177,7 +177,54 @@ def verify_same_app_restore(exe, config, env, owner_pid, probe_bin, host_pid, ev
         if host.get('hidden') is False and state.get('registered') is True and state.get('windows',0)>0 and minimized is False: break
         time.sleep(0.1)
     else: raise RuntimeError(f'second launch did not unhide the native app: engine={state}; host={host}')
-    return {'name':'second launch restores minimized and hidden native windows after acknowledgement','passed':True}
+    lines = (config / 'instance.lock').read_text().splitlines()
+    with socket.create_connection(('127.0.0.1', int(lines[0])), timeout=3) as connection:
+        connection.sendall(b'JMS1' + lines[1].encode() + b' MENU {"command":"close"}\n')
+        response = connection.recv(4096)
+    if not response.startswith(b'JMS1') or not json.loads(response[4:]).get('ok'):
+        raise RuntimeError('Close Window was rejected by the installed core')
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        state = json.loads(run([str(probe_bin), str(owner_pid)], timeout=10).stdout)
+        host = json.loads(run([str(probe_bin), str(host_pid)], timeout=10).stdout)
+        record('close', state, host)
+        if state.get('registered') and host.get('registered') and state.get('windows') == 0:
+            break
+        time.sleep(.1)
+    else:
+        raise RuntimeError('Close Window did not preserve the app with its player window closed')
+    second = run([str(exe), '--config', str(config)], env=env, timeout=15)
+    if second.returncode != 0 or not visible_descendant(probe_bin, owner_pid):
+        raise RuntimeError('reopening the closed player did not restore the existing window')
+    return {'name':'second launch restores minimized, hidden and closed native windows after acknowledgement','passed':True}
+
+
+def verify_native_settings_and_accessibility(host_pid, owner_pid, evidence):
+    command = run(['/bin/ps', '-ww', '-p', str(owner_pid), '-o', 'command='], timeout=5).stdout
+    endpoint = re.search(r'--input-ipc-server=([^\s]+)', command)[1]
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        native = ipc_property(endpoint, 'user-data/jellyfin-accessibility-native')
+        if isinstance(native, dict) and native.get('count', 0) > 0:
+            break
+        time.sleep(.2)
+    else:
+        raise RuntimeError('the installed browser did not expose native accessibility children')
+    (evidence / 'accessibility.json').write_text(json.dumps(native, indent=2) + '\n')
+    os.kill(host_pid, signal.SIGURG)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        try:
+            settings = json.loads((evidence / 'native-menus/settings.json').read_text())
+            if settings.get('native') and settings.get('visible') and settings.get('tabs') == ['General', 'Browse', 'Playback'] and settings.get('fields', 0) > 0:
+                break
+        except (OSError, ValueError):
+            pass
+        time.sleep(.2)
+    else:
+        raise RuntimeError('the installed app did not open its schema-backed native Settings window')
+    return {'name': 'installed native Settings and browser accessibility children', 'passed': True,
+            'settings': settings, 'accessibility': native}
 
 
 def verify_legacy_conflict(root, app, env, base, probe_bin, evidence):
@@ -388,6 +435,7 @@ def main():
         if state.get('windowNames') and not any('Jellyfin Player' in name for name in state['windowNames']):
             raise RuntimeError(f'player has the wrong visible window title: {state["windowNames"]}')
         result['tests'].append(verify_native_menus(evidence/'native-menus', {proc.pid, state['pid']}))
+        result['tests'].append(verify_native_settings_and_accessibility(proc.pid, state['pid'], evidence))
         shot=run(['/usr/sbin/screencapture','-x',str(evidence/'player.png')],timeout=20)
         result['tests'].append({'name':'screen capture', 'status':'captured' if shot.returncode == 0 else 'unavailable', 'message':shot.stderr})
         result['tests'].append({'name':'native app liveness and ownerPID window','launcherPID':proc.pid,'ownerPID':state['pid'],'ownerDetails':owner_details,'windowCount':windows,'passed':True})

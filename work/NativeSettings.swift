@@ -151,6 +151,14 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate {
         if let selected = selected { tabs.selectTabViewItem(withIdentifier: selected) }
         status.stringValue = "Changes are saved automatically."
         window?.recalculateKeyViewLoop()
+        if let path = ProcessInfo.processInfo.environment["JELLYFIN_PLAYER_MENU_DIAGNOSTICS"] {
+            let diagnostic: [String: Any] = ["native": true,
+                "windowTitle": window?.title ?? "", "visible": window?.isVisible == true,
+                "tabs": tabs.tabViewItems.map(\.label), "fields": fields.count]
+            if let data = try? JSONSerialization.data(withJSONObject: diagnostic) {
+                try? data.write(to: URL(fileURLWithPath: path).appendingPathComponent("settings.json"), options: .atomic)
+            }
+        }
     }
 
     func controlTextDidEndEditing(_ notification: Notification) {

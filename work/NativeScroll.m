@@ -131,6 +131,11 @@ static void updateAccessibility(NSDictionary *model) {
     changed = changed || elements.count != accessibilityView.elements.count;
     accessibilityView.elements = elements;
     if (changed) NSAccessibilityPostNotification(accessibilityView, NSAccessibilityLayoutChangedNotification);
+    if (NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_MENU_DIAGNOSTICS"]) {
+        NSDictionary *diagnostic = @{@"count": @(elements.count),
+            @"roles": [elements valueForKey:@"accessibilityRole"]};
+        dispatch_async(ioQueue, ^{ writeCommand(@[@"set_property", @"user-data/jellyfin-accessibility-native", diagnostic]); });
+    }
 }
 
 static void notifyAppHost(int signalNumber) {
