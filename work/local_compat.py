@@ -1,6 +1,7 @@
 """Mac integration kept outside the updateable upstream application."""
 from pathlib import Path
 import hashlib
+from mac_volume import MAX_VOLUME, adjust_volume, patch_sliders
 
 
 def patch_volume_persistence(player):
@@ -89,7 +90,7 @@ def apply(resources, package):
             keywords['env'] = player_environment(args[0], resources, keywords.get('env') or os.environ)
             # The upstream default discards terminal output. Keep a bounded,
             # redacted tail, drained continuously, for startup failure reports.
-            args = [*args, '--terminal=yes', '--title=Jellyfin Player']
+            args = [*args, '--terminal=yes', '--title=Jellyfin Player', f'--volume-max={MAX_VOLUME}']
             keywords.update(stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             original_popen(self, args, *positional, **keywords)
             startup.record_engine(self)
@@ -135,9 +136,12 @@ def apply(resources, package):
     verify(package)
 
     from jellyfin_mpv_shim.mpvtk import app as renderer_app
+    from jellyfin_mpv_shim.mpvtk_browser.gateway.transport import TransportMixin
+    TransportMixin.adjust_volume = adjust_volume
     original_layout = renderer_app.layout
     def accessible_layout(*args, **kwargs):
         nodes, handlers = original_layout(*args, **kwargs)
+        patch_sliders(nodes)
         for node in nodes:
             if not node.get('click'):
                 continue

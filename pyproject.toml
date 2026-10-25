@@ -1,6 +1,6 @@
 [project]
 name = "jellyfin-mpv-shim-macos"
-version = "0.2.6"
+version = "0.2.7"
 description = "macOS wrapper build environment for Jellyfin MPV Shim"
 requires-python = "==3.13.*"
 dependencies = ["jellyfin-mpv-shim"]

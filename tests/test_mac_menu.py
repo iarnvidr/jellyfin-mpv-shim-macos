@@ -50,7 +50,7 @@ class NativeMenuTests(unittest.TestCase):
         self.menu.request(self.command('Skip Forward 10 Seconds'))
         self.pm.seek.assert_called_once_with(10)
         self.menu.request(self.command('Increase Volume'))
-        self.pm.set_volume.assert_called_once_with(100)
+        self.pm.set_volume.assert_called_once_with(103)
         self.menu.request(self.command('Enter Full Screen'))
         self.pm.set_fullscreen.assert_called_once_with(True, True)
 
@@ -120,6 +120,18 @@ class NativeMenuTests(unittest.TestCase):
         self.menu.request('edit-z')
         self.engine.command.assert_called_with('script-message', 'jellyfin-native-edit', 'UNDO')
         self.assertEqual(self.menu.request('edit-Z'), {'ok': False})
+
+    def test_boost_preset_and_volume_keys_reach_200_with_a_normal_reset(self):
+        self.pm.get_volume.return_value = 198
+        self.menu.request('7:volume-up')
+        self.pm.set_volume.assert_called_with(200)
+        self.menu.request('7:volume-200')
+        self.pm.set_volume.assert_called_with(200)
+        self.pm.get_volume.return_value = 200
+        rows = list(entries(self.menu.model()['menus']))
+        self.assertTrue(next(row for row in rows if row.get('title') == '200%')['checked'])
+        self.menu.request('7:volume-100')
+        self.pm.set_volume.assert_called_with(100)
 
 
 if __name__ == '__main__':

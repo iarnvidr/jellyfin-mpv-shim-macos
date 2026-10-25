@@ -118,7 +118,9 @@ def verify_native_menus(directory, pids):
                 record = json.loads((directory / f'{pid}.json').read_text())
                 if record.get('model', {}).get('ready') and record.get('menus') == expected:
                     commands = {item.get('command') for item in record['model']['application']}
-                    if {'settings', 'updates'} <= commands:
+                    audio = next((m for m in record['model']['menus'] if m['title'] == 'Audio'), {})
+                    levels = next((i.get('items', []) for i in audio.get('items', []) if i.get('title') == 'Volume'), [])
+                    if {'settings', 'updates'} <= commands and any(i.get('title') == '200%' for i in levels):
                         records.append(record)
             except (OSError, ValueError):
                 pass
@@ -204,6 +206,16 @@ def verify_native_settings_and_accessibility(host_pid, owner_pid, evidence):
     endpoint = re.search(r'--input-ipc-server=([^\s]+)', command)[1]
     if ipc_property(endpoint, 'input-media-keys') is not True:
         raise RuntimeError('the installed player did not enable system media-key handling')
+    if ipc_property(endpoint, 'volume-max') != 200:
+        raise RuntimeError('the installed player did not configure the 200% mixer range')
+    previous_volume = ipc_property(endpoint, 'volume')
+    try:
+        response = ipc_command(endpoint, ['set_property', 'volume', 200])
+        if response.get('error') != 'success' or ipc_property(endpoint, 'volume') != 200:
+            raise RuntimeError('the installed mixer could not reach 200% volume')
+    finally:
+        if previous_volume is not None:
+            ipc_command(endpoint, ['set_property', 'volume', previous_volume])
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         native = ipc_property(endpoint, 'user-data/jellyfin-accessibility-native')
@@ -226,7 +238,8 @@ def verify_native_settings_and_accessibility(host_pid, owner_pid, evidence):
     else:
         raise RuntimeError('the installed app did not open its schema-backed native Settings window')
     return {'name': 'installed native Settings and browser accessibility children', 'passed': True,
-            'settings': settings, 'accessibility': native, 'system_media_keys': True}
+            'settings': settings, 'accessibility': native, 'system_media_keys': True,
+            'maximum_volume': 200, 'boost_roundtrip': True}
 
 
 def verify_legacy_conflict(root, app, env, base, probe_bin, evidence):
