@@ -38,6 +38,31 @@ struct VerifyNativeMenus {
         let application = app.mainMenu!.items[0].submenu!
         application.performActionForItem(at: application.numberOfItems - 1)
         precondition(quit)
+        var requests: [String] = []
+        let preferences = NativeSettings { command, completion in
+            requests.append(command)
+            if command == "settings-state" {
+                completion(["tabs": [["id": "general", "title": "General", "groups": [[
+                    "title": "Player", "fields": [
+                        ["key": "enabled", "title": "Enabled", "kind": "bool", "value": true],
+                        ["key": "speed", "title": "Speed", "kind": "float", "value": 1.25],
+                        ["key": "choice", "title": "Choice", "kind": "str", "value": "b", "options": [["A", "a"], ["B", "b"]]]]]]]]])
+            } else { completion(["ok": true]) }
+        }
+        preferences.open()
+        func controls(_ view: NSView) -> [NSControl] {
+            (view as? NSControl).map { [$0] } ?? view.subviews.flatMap(controls)
+        }
+        let nativeControls = controls(preferences.window!.contentView!)
+        let checkbox = nativeControls.first { $0.identifier?.rawValue == "enabled" } as! NSButton
+        let popup = nativeControls.first { $0.identifier?.rawValue == "choice" } as! NSPopUpButton
+        let text = nativeControls.first { $0.identifier?.rawValue == "speed" } as! NSTextField
+        precondition(popup.titleOfSelectedItem == "B" && text.stringValue == "1.25")
+        checkbox.performClick(nil)
+        precondition(requests.last!.hasPrefix("settings-set:"))
+        precondition(preferences.window?.windowController === preferences)
+        preferences.close()
+        print("Native Settings: native controls, persisted values, enum selection and save transport passed")
         print("Native AppKit menus: actions, shortcuts, selection and tracking passed")
     }
 }

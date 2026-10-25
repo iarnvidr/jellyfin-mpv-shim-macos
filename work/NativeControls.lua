@@ -84,7 +84,10 @@
                     end
                     local text = n.ax_label or n.text or n.label or n.tip or n.ph or ''
                     local value = n.value
-                    if role == 'text' then value = n.mask and '' or tb_state(n).text end
+                    if role == 'text' then
+                        value = n.mask and '' or tb_state(n).text
+                        text = n.ax_label or n.ph or n.tip or 'Text field'
+                    end
                     if role == 'popup' then value = (n.items or {})[(dd_state(n).sel or 0)+1] end
                     controls[#controls+1] = {id=n.id or ('label-'..index), role=role,
                         label=n.mask and (n.ph or n.tip or 'Password') or text, value=value, secure=n.mask or false,

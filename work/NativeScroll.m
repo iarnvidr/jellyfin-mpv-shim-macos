@@ -65,6 +65,13 @@ static JellyfinWindowControls *windowControls;
 - (void)setAccessibilityFocused:(BOOL)focused { if (focused) [self sendAction:@"focus" value:nil]; }
 - (void)setAccessibilityValue:(id)value { [self sendAction:@"set" value:value]; }
 - (id)accessibilityValue { return self.model[@"value"]; }
+- (BOOL)isAccessibilitySelectorAllowed:(SEL)selector {
+    NSString *role = self.model[@"role"];
+    if (selector == @selector(accessibilityPerformPress)) return ![role isEqualToString:@"label"] && ![role isEqualToString:@"slider"];
+    if (selector == @selector(accessibilityPerformIncrement) || selector == @selector(accessibilityPerformDecrement)) return [role isEqualToString:@"slider"];
+    if (selector == @selector(setAccessibilityValue:)) return [role isEqualToString:@"text"];
+    return [super isAccessibilitySelectorAllowed:selector];
+}
 @end
 
 @interface JellyfinAXView : NSView
@@ -310,6 +317,10 @@ __attribute__((constructor)) static void installNativeScrolling(void) {
         [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidBecomeKeyNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
             NSWindow *window = note.object;
             if ([window.title isEqualToString:@"mpv"]) window.title = @"Jellyfin Player";
+            if (!windowControls) windowControls = [JellyfinWindowControls new];
+            NSButton *close = [window standardWindowButton:NSWindowCloseButton];
+            close.target = windowControls;
+            close.action = @selector(closePlayer:);
         }];
         NSArray<NSString *> *arguments = NSProcessInfo.processInfo.arguments;
         for (NSUInteger i = 0; i < arguments.count; i++) {

@@ -9,6 +9,7 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate {
     private let status = NSTextField(wrappingLabelWithString: "")
     private var fields: [String: [String: Any]] = [:]
     private var optionValues: [String: [Any]] = [:]
+    private var editingMonitor: Any?
 
     init(request: @escaping Transport) {
         self.request = request
@@ -31,12 +32,25 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate {
             content.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 20),
             content.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -20),
             tabs.widthAnchor.constraint(equalTo: content.widthAnchor),
+            tabs.heightAnchor.constraint(greaterThanOrEqualToConstant: 300),
             status.heightAnchor.constraint(greaterThanOrEqualToConstant: 32)
         ])
         window.center()
+        editingMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak window] event in
+            guard event.window === window, event.modifierFlags.contains(.command),
+                  let editor = window?.firstResponder as? NSTextView else { return event }
+            let shift = event.modifierFlags.contains(.shift)
+            let actions = ["x": "cut:", "c": "copy:", "v": "paste:", "a": "selectAll:", "z": shift ? "redo:" : "undo:"]
+            if let action = actions[event.charactersIgnoringModifiers?.lowercased() ?? ""] {
+                NSApp.sendAction(Selector(action), to: editor, from: nil)
+                return nil
+            }
+            return event
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    deinit { if let monitor = editingMonitor { NSEvent.removeMonitor(monitor) } }
 
     func open() {
         showWindow(nil)
@@ -121,9 +135,7 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate {
             let scroll = NSScrollView()
             scroll.hasVerticalScroller = true
             scroll.drawsBackground = false
-            scroll.documentView = rows
             rows.translatesAutoresizingMaskIntoConstraints = false
-            rows.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor).isActive = true
             let flipped = FlippedSettingsView()
             flipped.addSubview(rows)
             rows.leadingAnchor.constraint(equalTo: flipped.leadingAnchor).isActive = true
