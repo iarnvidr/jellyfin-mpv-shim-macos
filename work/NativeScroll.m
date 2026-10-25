@@ -32,8 +32,9 @@ static void suppressEngineNowPlaying(void) {
     // The pinned mpv keeps publishing metadata from property observers even
     // with input-media-keys=no. Suppress its public MediaPlayer setters in
     // this engine process; the separate Dock host owns the real publisher.
-    Method info = class_getInstanceMethod(MPNowPlayingInfoCenter.class, @selector(setNowPlayingInfo:));
-    Method state = class_getInstanceMethod(MPNowPlayingInfoCenter.class, @selector(setPlaybackState:));
+    Class centerClass = object_getClass(MPNowPlayingInfoCenter.defaultCenter);
+    Method info = class_getInstanceMethod(centerClass, @selector(setNowPlayingInfo:));
+    Method state = class_getInstanceMethod(centerClass, @selector(setPlaybackState:));
     if (method_getImplementation(info) == (IMP)ignoreEngineNowPlayingInfo) return;
     MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = nil;
     MPNowPlayingInfoCenter.defaultCenter.playbackState = MPNowPlayingPlaybackStateStopped;
@@ -173,6 +174,7 @@ static NSData *iconPixels(NSImage *image) {
 }
 
 static void applyPlayerBranding(void) {
+    suppressEngineNowPlaying();
     if ([NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_HOSTED"] isEqualToString:@"1"]) {
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
     }
@@ -218,7 +220,7 @@ static void applyPlayerBranding(void) {
                  @"iconPixelMeanError": @(iconError),
                  @"iconMatchesJellyfin": @((BOOL)(iconError <= 2.0)),
                  @"engineNowPlayingSuppressed": @(method_getImplementation(class_getInstanceMethod(
-                     MPNowPlayingInfoCenter.class, @selector(setNowPlayingInfo:))) == (IMP)ignoreEngineNowPlayingInfo)};
+                     object_getClass(MPNowPlayingInfoCenter.defaultCenter), @selector(setNowPlayingInfo:))) == (IMP)ignoreEngineNowPlayingInfo)};
     JellyfinInstallNativeMenus();
 }
 
