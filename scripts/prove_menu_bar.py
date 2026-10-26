@@ -21,8 +21,10 @@ def run(*args, **kwargs):
     return subprocess.run(list(map(str, args)), check=True, **kwargs)
 
 
-def snapshot(name, pid=None, require_frontmost=True):
-    result = run(PROBE, *([pid] if pid else []), capture_output=True, text=True)
+def snapshot(name, pid=None, require_frontmost=True, activate=True):
+    # Passive captures preserve a failed transition before activation has any
+    # chance to repair it. Focus switching/reopen explicitly opt into activation.
+    result = run(PROBE, *([pid] if pid and activate else []), capture_output=True, text=True)
     record = json.loads(result.stdout)
     (OUT / f'{name}.json').write_text(json.dumps(record, indent=2) + '\n')
     shot = subprocess.run(['/usr/sbin/screencapture', '-x', str(OUT / f'{name}.png')], capture_output=True, text=True)
@@ -119,7 +121,7 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             host_state = snapshot(case + '-host-active', proc.pid, require_frontmost=False)
             engine_state = snapshot(case + '-engine-active', engine)
             server.start_playback(native, ipc, case, prior_sessions)
-            snapshot(case + '-playing-windowed', engine)
+            snapshot(case + '-playing-windowed', engine, activate=False)
             if case != 'original-release':
                 records = [json.loads(line) for line in (OUT / f'{case}-in-process.jsonl').read_text().splitlines()]
                 assert records, 'Instrumented library did not produce runtime records'
@@ -133,7 +135,7 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
                 if result.get('ok') is not True:
                     raise RuntimeError(f'{case}: fullscreen action rejected: {result}')
                 time.sleep(4)
-                snapshot(case + '-' + phase, engine)
+                snapshot(case + '-' + phase, engine, activate=False)
             # Switching focus tests both host/engine handoff paths while media
             # continues playing. Finder activation is recorded as its own case.
             finder = json.loads(run('osascript', '-e', 'tell application "System Events" to get unix id of process "Finder"',
@@ -145,7 +147,7 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
                 if result.get('ok') is not True:
                     raise RuntimeError(f'{case}: zoom action rejected: {result}')
                 time.sleep(2)
-                snapshot(case + '-playing-' + phase, engine)
+                snapshot(case + '-playing-' + phase, engine, activate=False)
             result = request(config, 'minimize')
             if result.get('ok') is not True:
                 raise RuntimeError(f'{case}: minimize action rejected: {result}')
@@ -153,15 +155,15 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             snapshot(case + '-playing-minimized')
             # Activating the outer app exercises the actual reopen handshake.
             snapshot(case + '-playing-reopen', proc.pid, require_frontmost=False)
-            snapshot(case + '-playing-reopened-engine', engine)
+            snapshot(case + '-playing-reopened-engine', engine, activate=False)
             request(config, 'fullscreen')
             time.sleep(3)
-            snapshot(case + '-playing-fullscreen-before-stop', engine)
+            snapshot(case + '-playing-fullscreen-before-stop', engine, activate=False)
             model = request(config, 'state')
             stop = model['now_playing']['commands']['stop']
             assert request(config, stop).get('ok') is True
             time.sleep(4)
-            snapshot(case + '-browser-after-fullscreen-stop', engine)
+            snapshot(case + '-browser-after-fullscreen-stop', engine, activate=False)
             # Recreate playback, then close its fullscreen window and reopen
             # through the real host activation path rather than setting flags.
             server.start_playback(native, ipc, case + '-second', prior_sessions)
@@ -172,7 +174,7 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             time.sleep(3)
             snapshot(case + '-closed-from-fullscreen')
             snapshot(case + '-host-reopen-after-fullscreen-close', proc.pid, require_frontmost=False)
-            snapshot(case + '-engine-after-fullscreen-close', engine)
+            snapshot(case + '-engine-after-fullscreen-close', engine, activate=False)
             summary.append({'case': case, 'hostPID': proc.pid, 'enginePID': engine,
                             'hostFrontmost': host_state['frontmost'], 'engineFrontmost': engine_state['frontmost']})
         finally:
