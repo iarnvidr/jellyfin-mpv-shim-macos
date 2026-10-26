@@ -190,12 +190,11 @@ struct NemotronMacAudit {
         bar.update(editModel)
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
         
-        guard let mainMenu = NSApp.mainMenu else {
-            record("edit_menu_follows_focus", false, "NSApp.mainMenu is nil")
-        } else {
+        if let mainMenu = NSApp.mainMenu {
             guard let editMenuItem = mainMenu.items.first(where: { $0.title == "Edit" }),
                   let editMenu = editMenuItem.submenu else {
                 record("edit_menu_follows_focus", false, "Edit menu not found in mainMenu")
+                return
             } else {
                 guard let speedField = allControls.first(where: { $0.identifier?.rawValue == "speed" }) as? NSTextField else {
                     record("edit_menu_follows_focus", false, "speed text field not found")
@@ -243,9 +242,7 @@ struct NemotronMacAudit {
         
         // CASE 4: updates tab survives relocation rebuild
         record("updates_tab_survives_rebuild", nil, "START")
-        guard let syncPathControl = allControls.first(where: { $0.identifier?.rawValue == "sync_path" }) as? NSButton else {
-            record("updates_tab_survives_rebuild", false, "sync_path control not found")
-        } else {
+        if let syncPathControl = allControls.first(where: { $0.identifier?.rawValue == "sync_path" }) as? NSButton {
             let startJson = try! JSONSerialization.data(withJSONObject: ["key": "sync_path", "value": "/new-downloads"], options: [.sortedKeys])
             let startJsonStr = String(data: startJson, encoding: .utf8)!
             record("updates_tab_survives_rebuild_start_json", nil, startJsonStr)
