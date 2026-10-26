@@ -69,6 +69,7 @@ static NSDictionary *desktopState(void) {
         @"pointerPosition": @{@"x": @(cursor.x), @"y": @(cursor.y)},
         @"jellyfinProcesses": apps, @"onScreenMenuWindows": bars ?: @[], @"jellyfinWindows": playerWindows,
         @"screens": screens, @"jellyfinAXWindows": axWindows, @"menuStripIntersectingWindows": intersections,
+        @"displaysHaveSeparateSpaces": @(NSScreen.screensHaveSeparateSpaces),
         @"accessibilityTrusted": @(AXIsProcessTrusted()),
         @"screenRecordingAllowed": @(CGPreflightScreenCaptureAccess()),
         @"globalAutoHideMenuBar": [NSUserDefaults.standardUserDefaults objectForKey:@"_HIHideMenuBar"] ?: NSNull.null};
@@ -245,7 +246,18 @@ static int loginPlayer(pid_t pid, NSArray<NSString *> *values) {
 
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        if (argc >= 3 && strcmp(argv[1], "--controls") == 0) {
+        if (argc == 5 && strcmp(argv[1], "--move-window") == 0) {
+            AXUIElementRef app = AXUIElementCreateApplication(atoi(argv[2]));
+            CFTypeRef windows = NULL;
+            AXError result = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute, &windows);
+            if (result != kAXErrorSuccess || CFArrayGetCount(windows) == 0) { CFRelease(app); return 1; }
+            CGPoint point = CGPointMake(atof(argv[3]), atof(argv[4]));
+            AXValueRef position = AXValueCreate(kAXValueCGPointType, &point);
+            result = AXUIElementSetAttributeValue(CFArrayGetValueAtIndex(windows, 0), kAXPositionAttribute, position);
+            CFRelease(position); CFRelease(windows); CFRelease(app);
+            emitRecord(@{@"windowMoveResult": @(result), @"x": @(point.x), @"y": @(point.y)}, nil);
+            return result == kAXErrorSuccess ? 0 : 1;
+        } else if (argc >= 3 && strcmp(argv[1], "--controls") == 0) {
             AXUIElementRef root = AXUIElementCreateApplication(atoi(argv[2]));
             NSMutableArray *nodes = [NSMutableArray array]; axNodes(root, nodes, 0);
             NSMutableArray *controls = [NSMutableArray array];

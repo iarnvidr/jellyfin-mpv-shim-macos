@@ -5,7 +5,7 @@ import Foundation
 for path in CommandLine.arguments.dropFirst() {
     guard let image = NSImage(contentsOfFile: path),
           let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
-          let crop = cg.cropping(to: CGRect(x: 0, y: 0, width: cg.width, height: min(46, cg.height))) else {
+          let crop = cg.cropping(to: CGRect(x: 0, y: 0, width: cg.width, height: min(path.contains("-display-") ? 92 : 46, cg.height))) else {
         fatalError("Cannot load menu-strip pixels: \(path)")
     }
     let request = VNRecognizeTextRequest()

@@ -18,6 +18,7 @@ from menu_bar_mechanisms import exercise_mechanism
 from menu_bar_ui_preferences import exercise_ui_preferences
 from menu_bar_browser import exercise_browser
 from menu_bar_video_hud import exercise_video_hud
+from menu_bar_topology import exercise_topology
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'outputs/menu-bar-proof'
@@ -111,6 +112,13 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'preferences-ui':
     cases = ['original-launchservices']
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('browser-focus', 'video-hud'):
     cases = ['original-browser']
+if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'display-topology':
+    cases = ['original-topology-legacy', 'original-topology-native']
+    run('xcrun', 'clang', '-fobjc-arc', '-fblocks', ROOT / 'tests/native/ProbeVirtualDisplay.m',
+        '-o', OUT / 'probe-virtual-display', '-framework', 'Cocoa', '-framework', 'CoreGraphics')
+    run('xcrun', 'clang', '-dynamiclib', '-fobjc-arc', '-fblocks', ROOT / 'tests/native/ProbeMenuBar.m',
+        '-o', OUT / 'read-only-menu-observer.dylib', '-framework', 'Cocoa', '-framework', 'ApplicationServices')
+    run('codesign', '--force', '--sign', '-', OUT / 'read-only-menu-observer.dylib')
 requested_cases = os.environ.get('JELLYFIN_MENU_PROOF_CASE_FILTER', '')
 if requested_cases:
     selected = requested_cases.split(',')
@@ -149,7 +157,7 @@ for case in cases:
             shutil.copy2(icon, target)
         run('codesign', '--force', '--deep', '--sign', '-', app)
     original_case = case.startswith('original-')
-    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus', 'video-hud')
+    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus', 'video-hud', 'display-topology')
     if not original_case:
         # Core launches mpv with its own embedded library, not the outer
         # host's duplicate. Replace each copy and verify the probe ran below.
@@ -197,6 +205,14 @@ for case in cases:
                             '[protocol.https]', 'native-fs=yes'])
     if mpv_options:
         (config / 'mpv.conf').write_text('\n'.join(mpv_options) + '\n')
+    if case.startswith('original-topology-'):
+        (config / 'mpv.conf').write_text('native-fs=' + ('no' if case.endswith('legacy') else 'yes') + '\n')
+        scripts = config / 'scripts'
+        scripts.mkdir(exist_ok=True)
+        library = json.dumps(str(OUT / 'read-only-menu-observer.dylib'))
+        (scripts / 'read_only_menu_observer.lua').write_text(
+            'local ffi = require("ffi")\n_G.menu_observer = ffi.load(' + library + ')\n'
+            'mp.set_property_native("user-data/menu-proof-observer-loaded", true)\n')
     native = OUT / case / 'native-menus'
     native.mkdir()
     env = dict(os.environ, JELLYFIN_PLAYER_MENU_DIAGNOSTICS=str(native),
@@ -246,6 +262,11 @@ for case in cases:
             time.sleep(3)
             snapshot(case + '-after-real-login', engine, require_frontmost=False, activate=False)
             device_id = active_profile(config)['device_id']
+            if case.startswith('original-topology-'):
+                result = exercise_topology(case, OUT, app, config, PROBE, engine, server, snapshot, request,
+                                            ipc, prior_sessions, device_id)
+                summary.append({'case': case, **result})
+                continue
             if case == 'original-browser':
                 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'video-hud':
                     result = exercise_video_hud(OUT, config, PROBE, engine, server, snapshot, request,

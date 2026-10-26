@@ -51,6 +51,7 @@ static void emit(NSString *phase, NSDictionary *details) {
     NSMutableDictionary *record = [@{@"phase": phase, @"time": @(NSDate.date.timeIntervalSince1970),
         @"onlineResult": @(status), @"onlineDisplayCount": @(count), @"displays": displays,
         @"screens": screens, @"virtualDisplayID": @(virtualDisplay.displayID),
+        @"displaysHaveSeparateSpaces": @(NSScreen.screensHaveSeparateSpaces),
         @"qualifiedSecondHiDPI": @(status == kCGErrorSuccess && count >= 2 && screens.count >= 2 && hasScale2)} mutableCopy];
     [record addEntriesFromDictionary:details ?: @{}];
     NSData *json = [NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingSortedKeys error:nil];

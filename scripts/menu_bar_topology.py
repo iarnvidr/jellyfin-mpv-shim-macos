@@ -1,0 +1,132 @@
+"""Actual second-display fullscreen/return/removal with passive all-screen PNGs."""
+import json
+import hashlib
+import plistlib
+from pathlib import Path
+import subprocess
+import time
+from menu_bar_playback import wait_for
+
+
+def exercise_topology(case, out, app, config, probe, engine, server, snapshot, request,
+                      ipc, prior_sessions, device_id):
+    native = out / case / 'native-menus'
+    archives = list((out.parents[1] / 'release').glob('*-Apple-Silicon.zip'))
+    assert len(archives) == 1, archives
+    identity = {'archive': archives[0].name, 'sha256': hashlib.sha256(archives[0].read_bytes()).hexdigest(),
+                'bundle': str(app), 'version': plistlib.loads((app / 'Contents/Info.plist').read_bytes())['CFBundleShortVersionString']}
+    (out / (case + '-public-identity.json')).write_text(json.dumps(identity, indent=2))
+    display_out = out / (case + '-display')
+    display_out.mkdir()
+    events = []
+
+    def command(*args):
+        result = subprocess.run([str(a) for a in args], check=True, capture_output=True, text=True)
+        events.append({'time': time.time(), 'command': [str(a) for a in args], 'stdout': result.stdout})
+        return result
+
+    def observer():
+        path = out / (case + '-in-process.jsonl')
+        if not path.exists():
+            return []
+        return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+    def capture(phase):
+        name = case + '-' + phase
+        state = snapshot(name, activate=False)
+        records = observer()
+        assert records, 'Read-only Lua-loaded AppKit observer did not record state'
+        # No activation or pointer movement is performed by capture.
+        state['readOnlyAppKitObservation'] = records[-1]
+        (out / (name + '.json')).write_text(json.dumps(state, indent=2))
+        for index, screen in enumerate(state['screens'], 1):
+            command('/usr/sbin/screencapture', '-x', '-D', index, out / f'{name}-display-{index}.png')
+        events.append({'time': time.time(), 'phase': phase, 'displayCount': len(state['screens']),
+                       'fullscreen': state.get('mpvState', {}).get('fullscreen'),
+                       'presentationOptions': records[-1]['presentationOptions'],
+                       'systemPresentationOptions': records[-1]['systemPresentationOptions']})
+        (out / (case + '-topology-events.json')).write_text(json.dumps(events, indent=2))
+        return state
+
+    def move(x, y):
+        command(probe, '--move-window', engine, x, y)
+        time.sleep(2)
+        # Deliberate pointer-away action, recorded separately from capture.
+        command(probe, '--pointer', x + 300, y + 220)
+        time.sleep(.5)
+
+    assert server.mpv(ipc, ['get_property', 'user-data/menu-proof-observer-loaded']) is True
+    command(probe, '--pointer', 500, 400)
+    capture('browser-before-second-display')
+    helper = out / 'probe-virtual-display'
+    log = (display_out / 'helper.log').open('w')
+    display = subprocess.Popen([str(helper), str(display_out), '900'], stdout=log, stderr=subprocess.STDOUT)
+    try:
+        def created():
+            path = display_out / 'after.json'
+            return json.loads(path.read_text()) if path.exists() else None
+        capability = wait_for('actual second display creation', created, seconds=25)
+        assert capability['qualifiedSecondHiDPI'], capability
+        screens = capability['screens']
+        secondary = next(s for s in screens if s['scale'] == 2)
+        # Obtain actual CG bounds, not Cocoa's bottom-left frame coordinates.
+        # The virtual display is arranged at the right edge of the primary.
+        x = next(d for d in capability['displays'] if d['id'] == secondary['id'])['bounds']
+        import re
+        numbers = [float(n) for n in re.findall(r'-?\d+(?:\.\d+)?', x)]
+        target_x, target_y = numbers[0] + 50, numbers[1] + 100
+        capture('browser-after-second-display')
+        command('/usr/bin/open', '-a', 'Finder')
+        time.sleep(2)
+        capture('finder-two-displays-control')
+        command('/usr/bin/open', '-a', app)
+        time.sleep(2)
+        move(target_x, target_y)
+        state = capture('browser-on-hidpi')
+        assert any(w.get('kCGWindowOwnerPID') == engine and w.get('kCGWindowBounds', {}).get('X', 0) >= numbers[0]
+                   for w in state['jellyfinWindows']), state['jellyfinWindows']
+        server.start_playback(native, ipc, case, prior_sessions, device_id=device_id)
+        move(target_x, target_y)
+        capture('playing-on-hidpi')
+        assert request(config, 'fullscreen').get('ok') is True
+        time.sleep(5)
+        capture('normal-fullscreen-on-hidpi')
+        assert request(config, 'fullscreen').get('ok') is True
+        time.sleep(4)
+        capture('normal-windowed-on-hidpi')
+        move(50, 100)
+        capture('moved-back-to-primary')
+        move(target_x, target_y)
+        assert request(config, 'fullscreen').get('ok') is True
+        time.sleep(5)
+        before = capture('fullscreen-before-removal')
+        assert before['mpvState']['fullscreen'] is True
+        (display_out / 'remove-request').touch()
+        wait_for('actual virtual display removal', lambda: (display_out / 'removed.json').exists(), seconds=15)
+        time.sleep(2)
+        removed = capture('display-removed-while-fullscreen')
+        assert len(removed['screens']) == 1, removed['screens']
+        if server.mpv(ipc, ['get_property', 'fullscreen']):
+            assert request(config, 'fullscreen').get('ok') is True
+        time.sleep(5)
+        exited = capture('windowed-after-display-removal')
+        if exited['mpvState']['fullscreen'] is False:
+            move(50, 100)
+            capture('windowed-moved-primary-after-removal')
+        model = request(config, 'state')
+        stop = model.get('now_playing', {}).get('commands', {}).get('stop')
+        if stop:
+            assert request(config, stop).get('ok') is True
+        time.sleep(3)
+        browser = capture('browser-after-display-removal')
+        return {'qualifiedSecondHiDPI': True, 'capability': capability,
+                'publicApp': identity,
+                'windowedAfterRemoval': exited['mpvState']['fullscreen'] is False,
+                'browserAfterRemoval': browser['mpvState']['fullscreen'] is False,
+                'observer': 'Read-only Objective-C library loaded through profile Lua; original app archive unchanged',
+                'finalAppKit': browser['readOnlyAppKitObservation']}
+    finally:
+        (display_out / 'remove-request').touch()
+        display.terminate()
+        display.wait(timeout=10)
+        log.close()
