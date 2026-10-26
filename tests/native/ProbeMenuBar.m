@@ -22,6 +22,31 @@ static NSDictionary *desktopState(void) {
     }
     NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID));
     NSMutableArray *bars = [NSMutableArray array];
+    NSMutableArray *intersections = [NSMutableArray array];
+    NSMutableArray *screens = [NSMutableArray array];
+    NSMutableArray *axWindows = [NSMutableArray array];
+    for (NSScreen *screen in NSScreen.screens) {
+        NSEdgeInsets inset = screen.safeAreaInsets;
+        [screens addObject:@{@"displayID": screen.deviceDescription[@"NSScreenNumber"] ?: @0,
+            @"frame": NSStringFromRect(screen.frame), @"visibleFrame": NSStringFromRect(screen.visibleFrame),
+            @"backingScale": @(screen.backingScaleFactor), @"safeArea": @[@(inset.top), @(inset.left), @(inset.bottom), @(inset.right)]}];
+    }
+    for (NSDictionary *app in apps) {
+        AXUIElementRef root = AXUIElementCreateApplication([app[@"pid"] intValue]);
+        CFTypeRef found = NULL;
+        if (AXUIElementCopyAttributeValue(root, kAXWindowsAttribute, &found) == kAXErrorSuccess) {
+            for (id window in CFBridgingRelease(found)) {
+                NSMutableDictionary *item = [@{@"pid": app[@"pid"]} mutableCopy];
+                for (NSString *key in @[@"AXTitle", @"AXFullScreen", @"AXMinimized"]) {
+                    CFTypeRef value = NULL;
+                    if (AXUIElementCopyAttributeValue((__bridge AXUIElementRef)window, (__bridge CFStringRef)key, &value) == kAXErrorSuccess)
+                        item[key] = CFBridgingRelease(value);
+                }
+                [axWindows addObject:item];
+            }
+        }
+        CFRelease(root);
+    }
     NSMutableArray *playerWindows = [NSMutableArray array];
     NSSet *playerPIDs = [NSSet setWithArray:[apps valueForKey:@"pid"]];
     for (NSDictionary *window in windows) {
@@ -30,12 +55,17 @@ static NSDictionary *desktopState(void) {
             [bars addObject:window];
         }
         if ([playerPIDs containsObject:window[(id)kCGWindowOwnerPID]]) [playerWindows addObject:window];
+        CGRect bounds;
+        if (CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)window[(id)kCGWindowBounds], &bounds)
+            && CGRectIntersectsRect(bounds, CGRectMake(display.origin.x, display.origin.y, display.size.width, 46)))
+            [intersections addObject:window];
     }
     return @{@"time": @(NSDate.date.timeIntervalSince1970),
         @"frontmost": appIdentity(NSWorkspace.sharedWorkspace.frontmostApplication),
         @"displayBounds": @{@"x": @(display.origin.x), @"y": @(display.origin.y), @"width": @(display.size.width), @"height": @(display.size.height)},
         @"pointerPosition": @{@"x": @(cursor.x), @"y": @(cursor.y)},
         @"jellyfinProcesses": apps, @"onScreenMenuWindows": bars ?: @[], @"jellyfinWindows": playerWindows,
+        @"screens": screens, @"jellyfinAXWindows": axWindows, @"menuStripIntersectingWindows": intersections,
         @"accessibilityTrusted": @(AXIsProcessTrusted()),
         @"screenRecordingAllowed": @(CGPreflightScreenCaptureAccess()),
         @"globalAutoHideMenuBar": [NSUserDefaults.standardUserDefaults objectForKey:@"_HIHideMenuBar"] ?: NSNull.null};
@@ -186,6 +216,7 @@ __attribute__((constructor)) static void installMenuBarProbe(void) {
             for (NSWindow *window in NSApp.windows) {
                 [windows addObject:@{@"title": window.title ?: @"", @"visible": @(window.visible),
                     @"key": @(window.keyWindow), @"styleMask": @(window.styleMask),
+                    @"isOnActiveSpace": @([window isOnActiveSpace]), @"level": @(window.level),
                     @"frame": NSStringFromRect(window.frame)}];
             }
             record[@"windows"] = windows;

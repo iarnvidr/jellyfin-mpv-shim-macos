@@ -13,6 +13,7 @@ import traceback
 from menu_bar_playback import PlaybackServer
 from menu_bar_launch import launch
 from menu_bar_preferences import exercise_preferences
+from menu_bar_mechanisms import exercise_mechanism
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'outputs/menu-bar-proof'
@@ -97,12 +98,15 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'launchservices':
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'configurations':
     cases = ['original-launchservices', 'original-reused-maximized', 'original-reused-titleless-maximized',
              'original-reused-system-level', 'original-reused-start-fullscreen']
+if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'mechanisms':
+    cases = ['original-switch-legacy-to-native', 'original-switch-native-to-legacy',
+             'original-windowed-vo-teardown', 'original-fullscreen-vo-teardown']
 for case in cases:
     app = OUT / case / 'Jellyfin Player.app'
     app.parent.mkdir()
     shutil.copytree(original, app, symlinks=True)
     original_case = case.startswith('original-')
-    launchservices = case == 'original-launchservices' or case.startswith('original-reused-')
+    launchservices = original_case and case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms')
     if not original_case:
         # Core launches mpv with its own embedded library, not the outer
         # host's duplicate. Replace each copy and verify the probe ran below.
@@ -192,6 +196,10 @@ for case in cases:
                 request(config, 'fullscreen')
                 time.sleep(4)
             playing_state = snapshot(case + '-playing-windowed', engine, activate=False)
+            if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'mechanisms':
+                result = exercise_mechanism(case, OUT, app, native, ipc, engine, server, snapshot, device_id)
+                summary.append({'case': case, 'mechanism': result})
+                continue
             if reused:
                 # This is a real second Finder/LaunchServices launch using the
                 # same saved profile while the first instance is playing.
