@@ -8,10 +8,14 @@ def exercise_transitions(case, out, app, native, ipc, engine, server, snapshot,
                          device_id, config, request):
     timeline = []
 
+    def preserve():
+        (out / (case + '-transition-timeline.json')).write_text(json.dumps(timeline, indent=2))
+
     def command(args):
         start = time.time()
         answer = PlaybackServer.mpv(ipc, args)
         timeline.append({'start': start, 'end': time.time(), 'command': args, 'result': answer})
+        preserve()
         return answer
 
     def record(phase):
@@ -43,7 +47,7 @@ def exercise_transitions(case, out, app, native, ipc, engine, server, snapshot,
         settle('legacy-zoom-after-explicit-exit')
     else:
         command(['set_property', 'native-fs', True])
-        for delay in (0, 0.03, 0.1, 0.25, 0.5):
+        for delay in (() if case.endswith('followup') else (0, 0.03, 0.1, 0.25, 0.5)):
             name = str(delay).replace('.', '_')
             restore()
             command(['set_property', 'fullscreen', True])
@@ -52,11 +56,14 @@ def exercise_transitions(case, out, app, native, ipc, engine, server, snapshot,
             settle('native-opposed-' + name)
         restore()
         # The Stop route is the real app's browser restoration, not mpv stop.
+        model = request(config, 'state')
+        stop_command = model['now_playing']['commands']['stop']
         command(['set_property', 'fullscreen', True])
         time.sleep(0.05)
         start = time.time()
-        answer = request(config, 'stop')
-        timeline.append({'start': start, 'end': time.time(), 'nativeMenuCommand': 'stop', 'result': answer})
+        answer = request(config, stop_command)
+        timeline.append({'start': start, 'end': time.time(), 'nativeMenuCommand': stop_command, 'result': answer})
+        preserve()
         assert answer.get('ok') is True, answer
         settle('native-entry-stop-browser')
         restore()

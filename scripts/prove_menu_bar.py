@@ -115,7 +115,8 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'browser-focus':
     cases = ['original-browser']
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'transitions':
     cases = ['original-transition-race', 'original-legacy-zoom',
-             'observed-transition-race', 'observed-legacy-zoom']
+             'observed-transition-race', 'observed-legacy-zoom',
+             'original-transition-followup', 'observed-transition-followup']
 requested_cases = os.environ.get('JELLYFIN_MENU_PROOF_CASE_FILTER', '')
 if requested_cases:
     selected = requested_cases.split(',')
