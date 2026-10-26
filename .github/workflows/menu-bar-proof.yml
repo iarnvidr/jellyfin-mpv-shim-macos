@@ -20,6 +20,13 @@ on:
       case_filter:
         type: string
         default: ''
+      engine_build_run_id:
+        type: string
+        default: ''
+      engine_variant:
+        type: choice
+        options: ['release', 'rebuilt-original', 'rebuilt-patched']
+        default: 'release'
 permissions:
   contents: read
 jobs:
@@ -45,6 +52,20 @@ jobs:
           test -s zip-checksum
           shasum -a 256 --check zip-checksum
           ditto -x -k Jellyfin-Player-0.2.9-Apple-Silicon.zip .
+      - name: Download complete rebuilt engine comparison bundle
+        if: inputs.engine_variant != 'release' && inputs.engine_build_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENGINE_BUILD_RUN_ID: ${{ inputs.engine_build_run_id }}
+          ENGINE_VARIANT: ${{ inputs.engine_variant }}
+        run: |
+          gh run download "$ENGINE_BUILD_RUN_ID" --repo iarnvidr/jellyfin-mpv-shim-macos --name mpv-fullscreen-comparison-macos-15-arm --dir engine-build
+          mkdir engine
+          tar -xzf "engine-build/$ENGINE_VARIANT-mpv.tar.gz" -C engine
+          test -x engine/mpv.app/Contents/MacOS/mpv
+          echo "JELLYFIN_MENU_PROOF_ENGINE_APP=$PWD/engine/mpv.app" >> "$GITHUB_ENV"
+          mkdir -p outputs/menu-bar-proof
+          cp engine-build/*.json engine-build/*.patch outputs/menu-bar-proof/ || true
       - name: Download isolated official Jellyfin server with bundled FFmpeg
         run: |
           curl --fail --location --retry 3 https://repo.jellyfin.org/files/server/macos/stable/v12.3/arm64/jellyfin_12.3-arm64.dmg --output "$RUNNER_TEMP/jellyfin.dmg"

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import plistlib
 from pathlib import Path
 import shutil
 import signal
@@ -114,6 +115,28 @@ for case in cases:
     app = OUT / case / 'Jellyfin Player.app'
     app.parent.mkdir()
     shutil.copytree(original, app, symlinks=True)
+    replacement = os.environ.get('JELLYFIN_MENU_PROOF_ENGINE_APP')
+    if replacement:
+        destination = app / 'Contents/Resources/mpv.app'
+        shutil.rmtree(destination)
+        shutil.copytree(replacement, destination, symlinks=True)
+        info_path = destination / 'Contents/Info.plist'
+        with info_path.open('rb') as file:
+            info = plistlib.load(file)
+        info.update(CFBundleName='Jellyfin Player', CFBundleDisplayName='Jellyfin Player',
+                    CFBundleIdentifier='org.jellyfin.mpvshim.player', CFBundleExecutable='mpv',
+                    CFBundleIconFile='jellyfin.icns')
+        info.pop('CFBundleIconName', None)
+        for key in ('CFBundleDocumentTypes', 'CFBundleURLTypes', 'UTImportedTypeDeclarations'):
+            info.pop(key, None)
+        with info_path.open('wb') as file:
+            plistlib.dump(info, file)
+        resources = destination / 'Contents/Resources'
+        icon = original / 'Contents/Resources/jellyfin.icns'
+        shutil.copy2(icon, resources / 'jellyfin.icns')
+        for target in resources.glob('*.icns'):
+            shutil.copy2(icon, target)
+        run('codesign', '--force', '--deep', '--sign', '-', app)
     original_case = case.startswith('original-')
     launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui')
     if not original_case:
@@ -223,6 +246,10 @@ for case in cases:
                 snapshot(case + '-startup-fullscreen-playing', engine, activate=False)
                 request(config, 'fullscreen')
                 time.sleep(4)
+            if case.startswith('observed-'):
+                # Establish the observation-only engine's foreground precondition
+                # before the experiment; subsequent transition captures are passive.
+                snapshot(case + '-explicit-precondition-activation', engine)
             playing_state = snapshot(case + '-playing-windowed', engine, activate=False)
             if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'mechanisms':
                 if case.startswith('observed-'):
