@@ -5,6 +5,7 @@ import AppKit
 final class NativeSettings: NSWindowController, NSTextFieldDelegate, NSWindowDelegate {
     typealias Transport = (String, @escaping ([String: Any]?) -> Void) -> Void
     private let request: Transport
+    private let copyDiagnostics: () -> Void
     private let tabs = NSTabView()
     private let status = NSTextField(wrappingLabelWithString: "")
     private var fields: [String: [String: Any]] = [:]
@@ -17,7 +18,8 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate, NSWindowDel
     private var updateNow: NSButton?
     private var updateLastCheck: NSTextField?
 
-    init(request: @escaping Transport) {
+    init(copyDiagnostics: @escaping () -> Void = {}, request: @escaping Transport) {
+        self.copyDiagnostics = copyDiagnostics
         self.request = request
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 620),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -27,7 +29,9 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate, NSWindowDel
         window.minSize = NSSize(width: 600, height: 450)
         super.init(window: window)
         window.delegate = self
-        let content = NSStackView(views: [tabs, status])
+        let copy = NSButton(title: "Copy Diagnostics", target: self, action: #selector(copyLocalDiagnostics))
+        copy.setAccessibilityIdentifier("copy-diagnostics")
+        let content = NSStackView(views: [tabs, status, copy])
         content.orientation = .vertical
         content.alignment = .leading
         content.spacing = 12
@@ -68,6 +72,11 @@ final class NativeSettings: NSWindowController, NSTextFieldDelegate, NSWindowDel
     deinit {
         updateTimer?.invalidate()
         if let monitor = editingMonitor { NSEvent.removeMonitor(monitor) }
+    }
+
+    @objc private func copyLocalDiagnostics() {
+        copyDiagnostics()
+        status.stringValue = "Local diagnostics copied. No screenshots or server details are included."
     }
 
     func open() {

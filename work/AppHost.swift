@@ -9,6 +9,7 @@ final class AppHost: NSObject, NSApplicationDelegate {
         FileHandle.standardError.write(Data(("AppHost \(Date().timeIntervalSince1970): \(message)\n").utf8))
     }
     private var core: Process?
+    private let sessionID = UUID().uuidString
     private var stopping = false
     private var signals: [DispatchSourceSignal] = []
     private var menus: NativeMenuSession?
@@ -25,6 +26,7 @@ final class AppHost: NSObject, NSApplicationDelegate {
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
         environment["JELLYFIN_PLAYER_HOSTED"] = "1"
+        environment["JELLYFIN_PLAYER_SESSION_ID"] = sessionID
         environment["JELLYFIN_PLAYER_HOST_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         process.environment = environment
         process.terminationHandler = { [weak self] process in
@@ -43,7 +45,7 @@ final class AppHost: NSObject, NSApplicationDelegate {
             try process.run()
             core = process
             menus = NativeMenuSession(lock: profileURL.appendingPathComponent("instance.lock"),
-                                      corePID: Int(process.processIdentifier),
+                                      corePID: Int(process.processIdentifier), sessionID: sessionID,
                                       updates: { [weak self] command in self?.updateCommand(command) }) { NSApp.terminate(nil) }
         } catch {
             let alert = NSAlert()
