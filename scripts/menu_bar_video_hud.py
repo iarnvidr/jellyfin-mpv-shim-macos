@@ -28,10 +28,13 @@ def exercise_video_hud(out, config, probe, engine, server, snapshot, request, ip
     wait_for('actual HUD scene shown', shown, seconds=15)
     records = {}
     for gesture in ('right', 'control'):
-        controls = json.loads(subprocess.run([str(probe), '--controls', str(engine)], check=True,
-                                            capture_output=True, text=True).stdout)
-        (out / f'shown-hud-{gesture}-before-controls.json').write_text(json.dumps(controls, indent=2))
-        play = next(node for node in controls['controls'] if node.get('id') == 'hud-pp')
+        def play_button():
+            controls = json.loads(subprocess.run([str(probe), '--controls', str(engine)], check=True,
+                                                capture_output=True, text=True).stdout)
+            (out / f'shown-hud-{gesture}-before-controls.json').write_text(json.dumps(controls, indent=2))
+            return next((node for node in controls['controls'] if node.get('id') == 'hud-pp'), None)
+
+        play = wait_for('real HUD Play/Pause button exported', play_button, seconds=15)
         x, y, width, height = play['bounds']
         assert 0 <= x < state['displayBounds']['width'] and 0 <= y < state['displayBounds']['height'], play
         paused = server.mpv(ipc, ['get_property', 'pause'])
