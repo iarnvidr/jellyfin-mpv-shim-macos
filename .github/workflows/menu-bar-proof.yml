@@ -86,6 +86,16 @@ jobs:
         run: |
           xcrun swiftc tests/native/ReadMenuBar.swift -o /tmp/read-menu-bar -framework AppKit -framework Vision
           find outputs/menu-bar-proof -name '*.png' -print0 | xargs -0 /tmp/read-menu-bar > outputs/menu-bar-proof/menu-pixels-ocr.jsonl
+      - name: Check screenshot regression for rebuilt engine comparison
+        if: always() && inputs.engine_variant != 'release'
+        env:
+          ENGINE_VARIANT: ${{ inputs.engine_variant }}
+        run: |
+          if [ "$ENGINE_VARIANT" = rebuilt-patched ]; then
+            python3 scripts/check_menu_bar_regression.py --require-visible
+          else
+            python3 scripts/check_menu_bar_regression.py
+          fi
       - name: Preserve packaged core logs
         if: always()
         run: cp -R "$HOME/Library/Logs/Jellyfin MPV Shim" outputs/menu-bar-proof/core-logs || true
