@@ -10,6 +10,8 @@ import socket
 import subprocess
 import time
 from menu_bar_playback import PlaybackServer
+from menu_bar_launch import launch
+from menu_bar_preferences import exercise_preferences
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'outputs/menu-bar-proof'
@@ -81,11 +83,15 @@ server = PlaybackServer(ROOT, OUT)
 summary = []
 cases = ['original-release'] if os.environ.get('JELLYFIN_MENU_PROOF_ORIGINAL_ONLY') == '1' else [
     'original-release', 'instrumented-accessory', 'instrumented-regular', 'stable-accessory']
+if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'launchservices':
+    cases = ['original-raw', 'original-launchservices']
 for case in cases:
     app = OUT / case / 'Jellyfin Player.app'
     app.parent.mkdir()
     shutil.copytree(original, app, symlinks=True)
-    if case != 'original-release':
+    original_case = case.startswith('original-')
+    launchservices = case == 'original-launchservices'
+    if not original_case:
         # Core launches mpv with its own embedded library, not the outer
         # host's duplicate. Replace each copy and verify the probe ran below.
         libraries = list(app.rglob('native-scroll.dylib'))
@@ -119,8 +125,7 @@ for case in cases:
         env['JELLYFIN_MENU_PROBE_REGULAR'] = '1'
     prior_sessions = {s['Id'] for s in server.api('GET', '/Sessions')}
     with (OUT / f'{case}-launcher.log').open('w') as log:
-        proc = subprocess.Popen([str(app / 'Contents/MacOS/Jellyfin Player'), '--config', str(config)],
-                                env=env, stdout=log, stderr=subprocess.STDOUT)
+        proc = launch(app, config, env, log, PROBE, through_launchservices=launchservices)
         engine = None
         try:
             deadline = time.monotonic() + 60
@@ -141,8 +146,8 @@ for case in cases:
             snapshot(case + '-cold-launch', engine, require_frontmost=False, activate=False)
             # The host intentionally forwards activation to the engine after
             # 200 ms. Record that handoff instead of treating it as a failure.
-            host_state = snapshot(case + '-host-active', proc.pid, require_frontmost=False)
-            engine_state = snapshot(case + '-engine-active', engine)
+            host_state = snapshot(case + '-host-active', proc.pid, require_frontmost=False, activate=not launchservices)
+            engine_state = snapshot(case + '-engine-active', engine, require_frontmost=not launchservices, activate=not launchservices)
             # The GUI intentionally uses its own login path; CLI credential
             # flags are only consumed by the upstream command-line UI.
             run(PROBE, '--login', engine, server.url, server.user, server.password)
@@ -150,7 +155,7 @@ for case in cases:
             snapshot(case + '-after-real-login', engine, activate=False)
             server.start_playback(native, ipc, case, prior_sessions)
             playing_state = snapshot(case + '-playing-windowed', engine, activate=False)
-            if case != 'original-release':
+            if not original_case:
                 records = [json.loads(line) for line in (OUT / f'{case}-in-process.jsonl').read_text().splitlines()]
                 assert records, 'Instrumented library did not produce runtime records'
                 expected_policy = 0 if case == 'instrumented-regular' else 1
@@ -162,6 +167,8 @@ for case in cases:
                     assert playing_state['frontmost']['policy'] == 0, 'Regular policy did not survive media initialization'
             initial = request(config, 'state')
             (OUT / f'{case}-core-state.json').write_text(json.dumps(initial, indent=2) + '\n')
+            if launchservices:
+                exercise_preferences(OUT, app, ipc, config, request, snapshot, PROBE)
             # Reproduce the transition as well as a cold windowed launch.
             for phase in ['enter-fullscreen', 'leave-fullscreen']:
                 result = request(config, 'fullscreen')
@@ -221,6 +228,7 @@ for case in cases:
             snapshot(case + '-host-reopen-after-fullscreen-close')
             snapshot(case + '-engine-after-fullscreen-close', engine, activate=False)
             summary.append({'case': case, 'hostPID': proc.pid, 'enginePID': engine,
+                            'launchServices': launchservices, 'profile': str(config), 'bundle': str(app),
                             'hostFrontmost': host_state['frontmost'], 'engineFrontmost': engine_state['frontmost'],
                             'playingFrontmost': playing_state['frontmost'],
                             'directEngineRefocusSucceeded': refocus['frontmost'].get('pid') == engine})

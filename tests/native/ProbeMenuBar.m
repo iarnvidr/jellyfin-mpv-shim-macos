@@ -7,10 +7,15 @@ static NSDictionary *appIdentity(NSRunningApplication *app) {
     if (!app) return @{};
     return @{@"pid": @(app.processIdentifier), @"name": app.localizedName ?: @"",
         @"bundle": app.bundleIdentifier ?: @"", @"active": @(app.active),
-        @"policy": @(app.activationPolicy), @"hidden": @(app.hidden)};
+        @"policy": @(app.activationPolicy), @"hidden": @(app.hidden),
+        @"bundlePath": app.bundleURL.path ?: @""};
 }
 
 static NSDictionary *desktopState(void) {
+    CGRect display = CGDisplayBounds(CGMainDisplayID());
+    CGEventRef currentEvent = CGEventCreate(NULL);
+    CGPoint cursor = CGEventGetLocation(currentEvent);
+    CFRelease(currentEvent);
     NSMutableArray *apps = [NSMutableArray array];
     for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
         if ([app.bundleIdentifier hasPrefix:@"org.jellyfin.mpvshim"]) [apps addObject:appIdentity(app)];
@@ -25,6 +30,8 @@ static NSDictionary *desktopState(void) {
     }
     return @{@"time": @(NSDate.date.timeIntervalSince1970),
         @"frontmost": appIdentity(NSWorkspace.sharedWorkspace.frontmostApplication),
+        @"displayBounds": @{@"x": @(display.origin.x), @"y": @(display.origin.y), @"width": @(display.size.width), @"height": @(display.size.height)},
+        @"pointerPosition": @{@"x": @(cursor.x), @"y": @(cursor.y)},
         @"jellyfinProcesses": apps, @"onScreenMenuWindows": bars ?: @[],
         @"accessibilityTrusted": @(AXIsProcessTrusted()),
         @"screenRecordingAllowed": @(CGPreflightScreenCaptureAccess()),
@@ -133,7 +140,15 @@ static int loginPlayer(pid_t pid, NSArray<NSString *> *values) {
 
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        if (argc == 6 && strcmp(argv[1], "--login") == 0) {
+        if (argc == 4 && strcmp(argv[1], "--pointer") == 0) {
+            CGPoint point = CGPointMake(atof(argv[2]), atof(argv[3]));
+            CGWarpMouseCursorPosition(point);
+            CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, point, kCGMouseButtonLeft);
+            CGEventPost(kCGHIDEventTap, event);
+            CFRelease(event);
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
+            emitRecord(@{@"pointerX": @(point.x), @"pointerY": @(point.y)}, nil);
+        } else if (argc == 6 && strcmp(argv[1], "--login") == 0) {
             return loginPlayer(atoi(argv[2]), @[[NSString stringWithUTF8String:argv[3]],
                 [NSString stringWithUTF8String:argv[4]], [NSString stringWithUTF8String:argv[5]]]);
         } else if (argc > 1 && strcmp(argv[1], "--dismiss-local-network") == 0) {
