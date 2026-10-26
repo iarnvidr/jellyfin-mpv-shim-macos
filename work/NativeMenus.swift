@@ -229,7 +229,7 @@ final class NativeMenuSession {
             if let host = ProcessInfo.processInfo.environment["JELLYFIN_PLAYER_HOST_PID"].flatMap(Int32.init), host > 1 { kill(host, SIGURG) }
             return
         }
-        diagnostics.freeze()
+        if settings?.window?.isVisible != true { diagnostics.freeze() }
         if settings == nil {
             settings = NativeSettings(copyDiagnostics: { [weak self] in self?.diagnostics.copyFrozen() }, request: { [weak self] command, completion in
                 self?.request(command, completion: completion)
@@ -326,7 +326,11 @@ final class MenuStateDiagnostics {
     private var total = 0
     private var timer: Timer?
     private var observation: NSKeyValueObservation?
+    private var notifications: [NSObjectProtocol] = []
     private var frozen = ""
+    private let writeLock = NSLock()
+    private var writeInFlight = false
+    private var pendingWrite: (Data, URL)?
     private let limit = 16
 
     init(role: String, corePID: Int, sessionID: String) {
@@ -335,6 +339,7 @@ final class MenuStateDiagnostics {
         let pid = Int(ProcessInfo.processInfo.processIdentifier)
         identity = ["role": role, "pid": pid, "hostPID": role == "host" ? pid : (Int(env["JELLYFIN_PLAYER_HOST_PID"] ?? "") ?? 0),
                     "corePID": corePID, "sessionID": sessionID,
+                    "processLaunchTime": NSRunningApplication.current.launchDate?.timeIntervalSince1970 ?? 0,
                     "roleVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"]
         directory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Logs/Jellyfin Player/menu-state", isDirectory: true)
@@ -345,12 +350,19 @@ final class MenuStateDiagnostics {
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.sample(reason: "sample") }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+                     NSApplication.didChangeScreenParametersNotification, NSWindow.didBecomeKeyNotification,
+                     NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+            notifications.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.sample(reason: "notification")
+            })
+        }
         observation = NSApp.observe(\.currentSystemPresentationOptions, options: [.new]) { [weak self] _, _ in
             if Thread.isMainThread { self?.sample(reason: "effectivePresentation") }
             else { DispatchQueue.main.async { self?.sample(reason: "effectivePresentation") } }
         }
     }
-    deinit { timer?.invalidate() }
+    deinit { timer?.invalidate(); notifications.forEach { NotificationCenter.default.removeObserver($0) } }
 
     private func rect(_ r: NSRect) -> [Double] { [r.origin.x, r.origin.y, r.width, r.height] }
     private func preference(_ key: String) -> [String: Any] {
@@ -370,7 +382,11 @@ final class MenuStateDiagnostics {
     }
     private func state() -> [String: Any] {
         let os = ProcessInfo.processInfo.operatingSystemVersion
-        let windows = NSApp.windows.prefix(8).map { w -> [String: Any] in
+        let windows = NSApp.windows.sorted { a, b in
+            let x = (a.isKeyWindow ? 4 : 0) + (a.isVisible ? 2 : 0) + (a.isMainWindow ? 1 : 0)
+            let y = (b.isKeyWindow ? 4 : 0) + (b.isVisible ? 2 : 0) + (b.isMainWindow ? 1 : 0)
+            return x == y ? a.windowNumber < b.windowNumber : x > y
+        }.prefix(8).map { w -> [String: Any] in
             ["number": w.windowNumber, "frame": rect(w.frame), "styleMask": w.styleMask.rawValue,
              "screenDisplayID": (w.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0,
              "level": w.level.rawValue, "onActiveSpace": w.isOnActiveSpace, "visible": w.isVisible,
@@ -419,12 +435,89 @@ final class MenuStateDiagnostics {
         }
         guard let data = try? JSONSerialization.data(withJSONObject: document(at: now), options: [.sortedKeys]), data.count <= 262144 else { return }
         let url = directory.appendingPathComponent(role + ".json")
+        writeLock.lock()
+        if writeInFlight { pendingWrite = (data, url); writeLock.unlock(); return }
+        writeInFlight = true
+        writeLock.unlock()
+        enqueueWrite(data, url)
+    }
+    private func enqueueWrite(_ data: Data, _ url: URL) {
         io.async {
+            defer {
+                self.writeLock.lock()
+                let next = self.pendingWrite
+                self.pendingWrite = nil
+                if next == nil { self.writeInFlight = false }
+                self.writeLock.unlock()
+                if let next = next { self.enqueueWrite(next.0, next.1) }
+            }
             do {
-                try data.write(to: url, options: [.atomic])
-                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+                // Create with owner-only permissions BEFORE writing any bytes; rename atomically.
+                let temporary = url.appendingPathExtension("tmp")
+                let fd = Darwin.open(temporary.path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o600)
+                guard fd >= 0 else { return }
+                guard fchmod(fd, 0o600) == 0 else { Darwin.close(fd); return }
+                let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+                do {
+                    try handle.write(contentsOf: data)
+                    try handle.close()
+                    if rename(temporary.path, url.path) != 0 { unlink(temporary.path) }
+                } catch { try? handle.close(); unlink(temporary.path) }
             } catch { /* No arbitrary error/path strings are collected. */ }
         }
+    }
+
+    private func readPeer(_ url: URL) -> Data? {
+        let fd = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard fd >= 0 else { return nil }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? handle.close() }
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_uid == geteuid(), info.st_size <= 262144 else { return nil }
+        guard let data = try? handle.read(upToCount: 262145), data.count <= 262144 else { return nil }
+        return data
+    }
+    // Reject, rather than forward, unknown peer fields. No arbitrary strings can enter a copied report.
+    private func validPeer(_ value: Any, kind: String) -> Bool {
+        let keys: [String: Set<String>] = [
+            "document": ["schema", "identity", "lastObservedMonotonic", "history", "initial", "totalTransitions"],
+            "identity": ["role", "pid", "hostPID", "corePID", "sessionID", "processLaunchTime", "roleVersion"],
+            "entry": ["monotonic", "wallTime", "reason", "state"],
+            "state": ["requestedPresentation", "effectivePresentation", "menuBarVisibleReported", "mainMenuItemCount", "activationPolicy", "active", "hidden", "frontmostPID", "osVersion", "osBuild", "engineProperties", "windows", "windowsOmitted", "screens", "screensOmitted", "mouse", "preferences"],
+            "window": ["number", "frame", "styleMask", "screenDisplayID", "level", "onActiveSpace", "visible", "key", "main", "miniaturized", "zoomed"],
+            "screen": ["displayID", "frame", "visibleFrame", "scale", "safeArea"],
+            "preferences": ["_HIHideMenuBar", "AppleMenuBarVisibleInFullscreen"],
+            "engineProperties": ["status"]]
+        guard let object = value as? [String: Any] else { return false }
+        if kind == "preference" {
+            guard let type = object["type"] as? String, ["missing", "unsupported", "boolean", "number"].contains(type),
+                  Set(object.keys) == ((type == "boolean" || type == "number") ? Set(["type", "value"]) : Set(["type"])) else { return false }
+            return object["value"] == nil || (object["value"] as? NSNumber)?.doubleValue.isFinite == true
+        }
+        guard let allowed = keys[kind], Set(object.keys) == allowed else { return false }
+        for (key, item) in object {
+            let nested = ["identity": "identity", "initial": "entry", "state": "state", "preferences": "preferences", "engineProperties": "engineProperties", "_HIHideMenuBar": "preference", "AppleMenuBarVisibleInFullscreen": "preference"]
+            if let child = nested[key] { if !validPeer(item, kind: child) { return false }; continue }
+            if ["history", "windows", "screens"].contains(key) {
+                guard let list = item as? [Any], list.count <= 16 else { return false }
+                let child = key == "history" ? "entry" : (key == "windows" ? "window" : "screen")
+                if !list.allSatisfy({ validPeer($0, kind: child) }) { return false }; continue
+            }
+            if let text = item as? String {
+                switch key {
+                case "role": if !["host", "engine"].contains(text) { return false }
+                case "sessionID": if UUID(uuidString: text) == nil { return false }
+                case "reason": if !["initial", "sample", "beforeSettings", "effectivePresentation", "notification"].contains(text) { return false }
+                case "status": if text != "unavailable" { return false }
+                case "roleVersion", "osBuild": if text.count > 64 || !text.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }) { return false }
+                default: return false
+                }
+            } else if let number = item as? NSNumber { if !number.doubleValue.isFinite { return false } }
+            else if let array = item as? [NSNumber] { if array.count > 4 || !array.allSatisfy({ $0.doubleValue.isFinite }) { return false } }
+            else { return false }
+        }
+        return true
     }
 
     // Called in the host BEFORE constructing or showing Settings, including direct SIGURG routes.
@@ -436,17 +529,36 @@ final class MenuStateDiagnostics {
         let peerRole = role == "host" ? "engine" : "host"
         var peer: [String: Any] = ["status": "missing"]
         let url = directory.appendingPathComponent(peerRole + ".json")
-        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 262144,
-           let data = try? Data(contentsOf: url),
+        if FileManager.default.fileExists(atPath: url.path) { peer = ["status": "unreadableOrInvalid"] }
+        if let data = readPeer(url),
            let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           validPeer(value, kind: "document"),
            let id = value["identity"] as? [String: Any] {
             let same = ["sessionID", "hostPID", "corePID"].allSatisfy { String(describing: id[$0] ?? "") == String(describing: identity[$0] ?? "") }
-            if same, id["role"] as? String == peerRole, let pid = id["pid"] as? Int, pid > 1 {
+            if same, UUID(uuidString: identity["sessionID"] as? String ?? "") != nil,
+               id["role"] as? String == peerRole, let pid = id["pid"] as? Int, pid > 1 {
+                let host = NSRunningApplication(processIdentifier: Int32(identity["hostPID"] as? Int ?? 0))
+                let expected = peerRole == "engine" ? host?.bundleURL?.appendingPathComponent("Contents/Resources/mpv.app") : host?.bundleURL
+                let application = NSRunningApplication(processIdentifier: Int32(pid))
+                let launch = id["processLaunchTime"] as? Double ?? 0
+                let matches = NSWorkspace.shared.runningApplications.filter { $0.bundleURL == expected }
+                guard let expected = expected, application?.bundleURL == expected,
+                      launch > 0, abs((application?.launchDate?.timeIntervalSince1970 ?? 0) - launch) < 0.01 else {
+                    finishFreeze(own: own, peer: ["status": "processIdentityMismatch"], cutoff: cutoff); return
+                }
+                guard matches.count == 1 else {
+                    finishFreeze(own: own, peer: ["status": "ambiguous", "candidatePIDs": matches.map { $0.processIdentifier }], cutoff: cutoff); return
+                }
                 let observed = value["lastObservedMonotonic"] as? Double ?? 0
-                peer = ["status": kill(Int32(pid), 0) != 0 ? "exited" : (cutoff - observed > 4 ? "stale" : "available"),
+                peer = ["status": kill(Int32(pid), 0) != 0 ? "exited" : (observed > cutoff ? "newerThanCutoff" : (cutoff - observed > 4 ? "stale" : "available")),
                         "ageSeconds": max(0, cutoff - observed), "document": value]
             } else { peer = ["status": "identityMismatch"] }
         }
+        finishFreeze(own: own, peer: peer, cutoff: cutoff)
+    }
+    private func finishFreeze(own original: [String: Any], peer originalPeer: [String: Any], cutoff: Double) {
+        var own = original
+        var peer = originalPeer
         func bounded(_ source: [String: Any]) -> [String: Any] {
             var result = source
             let records = (source["history"] as? [[String: Any]] ?? []).filter { ($0["monotonic"] as? Double ?? .infinity) <= cutoff }
