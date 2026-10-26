@@ -129,7 +129,8 @@ do
                 end
             end
         end
-        local model = {w=state.w, h=state.h, nodes=controls}
+        local model = {w=state.w, h=state.h, nodes=controls,
+            browserContextEnabled=state.active and not state.phud.mode or false}
         encoded = utils.format_json(model)
         if encoded ~= last_ax then
             last_ax = encoded

@@ -74,11 +74,11 @@ class NativeMenuTests(unittest.TestCase):
         self.menu.request('show')
         self.ui.on_second_launch.assert_called_once_with()
 
-    def test_player_right_click_callback_is_removed_from_shipped_renderer(self):
+    def test_right_click_callback_preserves_browser_and_excludes_playback_hud(self):
         source = Path(__file__).resolve().parents[1] / 'work/source/jellyfin_mpv_shim/mpvtk/renderer.lua'
         original = source.read_text()
         self.assertIn('state.mouse.down = true; on_rclick()', original)
-        self.assertNotIn('state.mouse.down = true; on_rclick()', patch_renderer(original))
+        self.assertIn('if state.active and not state.phud.mode then state.mouse.down = true; on_rclick() end', patch_renderer(original))
 
     def test_playback_header_is_draggable_with_native_chrome_and_no_scrim(self):
         from jellyfin_mpv_shim.mpvtk.widgets import Row, Stack, Text, Button
