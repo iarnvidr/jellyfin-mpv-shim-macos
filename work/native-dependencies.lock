@@ -3,10 +3,10 @@
 SPARKLE_VERSION=2.10.0
 SPARKLE_URL=https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz
 SPARKLE_SHA256=c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c
-# Official development build containing the CoreAudio init-failure listener fix
-# c5d391adba7bd024954d0df1e0405f5749f4d4ca (mpv-player/mpv#18274).
-# Pin a named build and exact bytes; never resolve the rolling latest asset.
-MPV_VERSION=0.41.0-dev-g3aecc359b
-MPV_ARCHIVE=vendor/mpv/mpv-3aecc359b-macos-15-arm.zip
-MPV_URL=https://github.com/mpv-player/mpv/releases/download/git-release/mpv-v0.41.0-dev-g3aecc359b-39997768869-macos-15-arm.zip
-MPV_SHA256=5e9162149826822b911f69d4e6bc3644bae35d9609fd8af28238c43a106301e3
+# Rebuilt from pinned mpv source with the fullscreen entry-mechanism routing fix.
+# Complete source patch, build inputs and checksums: vendor/mpv/fullscreen-owner-build/.
+# Includes the CoreAudio initialization failure fix c5d391adba7bd024954d0df1e0405f5749f4d4ca.
+MPV_VERSION=0.41.0-1289-g3aecc359b-fullscreen-owner
+MPV_ARCHIVE=vendor/mpv/mpv-3aecc359b-fullscreen-owner-macos-15-arm.zip
+MPV_URL=https://raw.githubusercontent.com/iarnvidr/jellyfin-mpv-shim-macos/6c143489cfef171720e6bca4a57c58cbabd45a07/vendor/mpv/mpv-3aecc359b-fullscreen-owner-macos-15-arm.zip
+MPV_SHA256=010c8ce4ab2ec27fe36f505436faf160bbbe2c9353060deb4bc193c8a7fdf939

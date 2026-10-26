@@ -1,4 +1,4 @@
-"""Fetch and verify the official mpv-player macOS 15 arm64 release archive."""
+"""Acquire and verify the pinned complete mpv macOS arm64 archive."""
 from pathlib import Path
 import hashlib, urllib.request, zipfile, os, tempfile, shutil
 ROOT=Path(__file__).resolve().parent
@@ -22,6 +22,6 @@ with tarfile.open(fileobj=io.BytesIO(payload),mode='r:gz') as archive:
   target=(ROOT/'mpv-release'/member.name).resolve()
   if not target.is_relative_to((ROOT/'mpv-release').resolve()): raise SystemExit(f'unsafe archive path: {member.name}')
  candidates=[m.name for m in members if m.name.endswith('/mpv') or m.name=='mpv']
- if not candidates: raise SystemExit('official mpv archive missing mpv executable')
+ if not candidates: raise SystemExit('pinned mpv archive missing mpv executable')
  archive.extractall(ROOT/'mpv-release',members=members)
 print('verified',path,digest,'mpv paths:',candidates)

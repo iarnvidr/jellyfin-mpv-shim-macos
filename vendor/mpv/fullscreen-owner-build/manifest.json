@@ -3,7 +3,7 @@
   "source_revision": "3aecc359bb815475dc50909ba06b40d8a1a26dad",
   "source_patch_sha256": "da45e06cd6231961f64dc0aafb2ad3fdb1eab289e962fe76684ac88c5e9ce8ab",
   "build_repository": "https://github.com/iarnvidr/jellyfin-mpv-shim-macos",
-  "build_commit": "8251874",
+  "build_commit": "8251874125a88559e0c8b55904de9bdd73ad4b5d",
   "build_run": "https://github.com/iarnvidr/jellyfin-mpv-shim-macos/actions/runs/40383810921",
   "build_artifact": "https://github.com/iarnvidr/jellyfin-mpv-shim-macos/actions/runs/40383810921/artifacts/12679149926",
   "build_artifact_sha256": "edd29550901b145a453a3f20248745709bc8a36a7799869b480647113e26d37e",
@@ -21,5 +21,22 @@
   "patched_tar_sha256": "aebfcbe24b52aa74053cd9594098283121e40b57893141840a3cbf967be315ad",
   "vendor_archive": "vendor/mpv/mpv-3aecc359b-fullscreen-owner-macos-15-arm.zip",
   "vendor_archive_sha256": "010c8ce4ab2ec27fe36f505436faf160bbbe2c9353060deb4bc193c8a7fdf939",
-  "vendor_archive_format": "ZIP_STORED containing the unchanged rebuilt-patched-mpv.tar.gz as mpv.tar.gz"
+  "vendor_archive_format": "ZIP_STORED containing the unchanged rebuilt-patched-mpv.tar.gz as mpv.tar.gz",
+  "playback_comparison": {
+    "original_run": "https://github.com/iarnvidr/jellyfin-mpv-shim-macos/actions/runs/40384667380",
+    "patched_run": "https://github.com/iarnvidr/jellyfin-mpv-shim-macos/actions/runs/40384672078",
+    "controlled_mode_switch": {
+      "original": {
+        "fullscreen": false,
+        "presentation_options": 5,
+        "menu_bar_visible": false
+      },
+      "patched": {
+        "fullscreen": false,
+        "presentation_options": 0,
+        "menu_bar_visible": true
+      }
+    },
+    "packaged_app_qualification": "pending"
+  }
 }
