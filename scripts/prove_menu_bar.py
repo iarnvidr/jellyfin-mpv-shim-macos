@@ -101,15 +101,21 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'configurations':
              'original-reused-system-level', 'original-reused-start-fullscreen']
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'mechanisms':
     cases = ['original-switch-legacy-to-native', 'original-switch-native-to-legacy',
-             'original-windowed-vo-teardown', 'original-fullscreen-vo-teardown']
+             'original-windowed-vo-teardown', 'original-fullscreen-vo-teardown',
+             'observed-switch-legacy-to-native', 'original-http-profile']
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'preferences-ui':
     cases = ['original-launchservices']
+requested_cases = os.environ.get('JELLYFIN_MENU_PROOF_CASE_FILTER', '')
+if requested_cases:
+    selected = requested_cases.split(',')
+    assert set(selected) <= set(cases), f'Unknown diagnostic case: {selected}'
+    cases = [case for case in cases if case in selected]
 for case in cases:
     app = OUT / case / 'Jellyfin Player.app'
     app.parent.mkdir()
     shutil.copytree(original, app, symlinks=True)
     original_case = case.startswith('original-')
-    launchservices = original_case and case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui')
+    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui')
     if not original_case:
         # Core launches mpv with its own embedded library, not the outer
         # host's duplicate. Replace each copy and verify the probe ran below.
@@ -152,6 +158,9 @@ for case in cases:
         mpv_options.append('macos-app-activation-policy=accessory')
     if case == 'original-reused-system-level':
         mpv_options.extend(['ontop=yes', 'ontop-level=system'])
+    if case == 'original-http-profile':
+        mpv_options.extend(['native-fs=no', '[protocol.http]', 'native-fs=yes',
+                            '[protocol.https]', 'native-fs=yes'])
     if mpv_options:
         (config / 'mpv.conf').write_text('\n'.join(mpv_options) + '\n')
     native = OUT / case / 'native-menus'
@@ -191,15 +200,33 @@ for case in cases:
             if not saved_user or not saved_user.get('credentials'):
                 run(PROBE, '--login', engine, server.url, server.user, server.password)
             time.sleep(3)
-            snapshot(case + '-after-real-login', engine, require_frontmost=not reused, activate=False)
+            snapshot(case + '-after-real-login', engine, require_frontmost=False, activate=False)
             device_id = active_profile(config)['device_id']
+            if case == 'original-http-profile':
+                assert server.mpv(ipc, ['get_property', 'native-fs']) is False
+                assert request(config, 'fullscreen').get('ok') is True
+                time.sleep(4)
+                snapshot(case + '-browser-fullscreen-before-real-http-playback', activate=False)
             server.start_playback(native, ipc, case, prior_sessions, device_id=device_id)
+            if case == 'original-http-profile':
+                snapshot(case + '-real-http-playback-auto-profile', activate=False)
+                assert server.mpv(ipc, ['get_property', 'native-fs']) is True, 'Actual HTTP auto-profile did not change mode'
+                for count in (1, 2):
+                    if server.mpv(ipc, ['get_property', 'fullscreen']):
+                        assert request(config, 'fullscreen').get('ok') is True
+                        time.sleep(4)
+                    snapshot(case + f'-actual-menu-exit-{count}', activate=False)
+                summary.append({'case': case, 'modeChangeViaUserConfiguration': True,
+                                'fullscreen': server.mpv(ipc, ['get_property', 'fullscreen'])})
+                continue
             if server.mpv(ipc, ['get_property', 'fullscreen']):
                 snapshot(case + '-startup-fullscreen-playing', engine, activate=False)
                 request(config, 'fullscreen')
                 time.sleep(4)
             playing_state = snapshot(case + '-playing-windowed', engine, activate=False)
             if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'mechanisms':
+                if case.startswith('observed-'):
+                    assert (OUT / f'{case}-in-process.jsonl').exists(), 'Observation library did not load'
                 result = exercise_mechanism(case, OUT, app, native, ipc, engine, server, snapshot, device_id)
                 summary.append({'case': case, 'mechanism': result})
                 continue

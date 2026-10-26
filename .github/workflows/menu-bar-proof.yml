@@ -17,6 +17,9 @@ on:
         type: choice
         options: ['both', 'macos-26']
         default: 'both'
+      case_filter:
+        type: string
+        default: ''
 permissions:
   contents: read
 jobs:
@@ -55,6 +58,7 @@ jobs:
           JELLYFIN_MENU_PROOF_ORIGINAL_ONLY: ${{ inputs.original_only && '1' || '0' }}
           JELLYFIN_MENU_PROOF_NATIVE_FS: ${{ inputs.native_fs || 'yes' }}
           JELLYFIN_MENU_PROOF_SCENARIO: ${{ inputs.scenario || 'default' }}
+          JELLYFIN_MENU_PROOF_CASE_FILTER: ${{ inputs.case_filter }}
         run: python3 scripts/prove_menu_bar.py
       - name: Read actual menu-strip screenshot text with Apple Vision
         if: always()

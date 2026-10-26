@@ -31,6 +31,8 @@ static NSDictionary *desktopState(void) {
             @"frame": NSStringFromRect(screen.frame), @"visibleFrame": NSStringFromRect(screen.visibleFrame),
             @"backingScale": @(screen.backingScaleFactor), @"safeArea": @[@(inset.top), @(inset.left), @(inset.bottom), @(inset.right)]}];
     }
+#ifdef PROBE_STANDALONE
+    // In-process timer must never issue synchronous AX requests to itself.
     for (NSDictionary *app in apps) {
         AXUIElementRef root = AXUIElementCreateApplication([app[@"pid"] intValue]);
         CFTypeRef found = NULL;
@@ -47,6 +49,7 @@ static NSDictionary *desktopState(void) {
         }
         CFRelease(root);
     }
+#endif
     NSMutableArray *playerWindows = [NSMutableArray array];
     NSSet *playerPIDs = [NSSet setWithArray:[apps valueForKey:@"pid"]];
     for (NSDictionary *window in windows) {
