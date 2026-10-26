@@ -62,6 +62,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           APP_BUILD_RUN_ID: ${{ inputs.app_build_run_id }}
         run: |
+          candidate_ready=0
+          for candidate_attempt in {1..120}; do
+            candidate_status="$(gh run view "$APP_BUILD_RUN_ID" --repo iarnvidr/jellyfin-mpv-shim-macos --json status,conclusion --jq '.status + ":" + .conclusion')"
+            case "$candidate_status" in
+              completed:success) candidate_ready=1; break ;;
+              completed:*) echo "Candidate build rejected: $candidate_status"; exit 1 ;;
+            esac
+            sleep 5
+          done
+          test "$candidate_ready" = 1
           mkdir release
           gh run download "$APP_BUILD_RUN_ID" --repo iarnvidr/jellyfin-mpv-shim-macos --pattern "Jellyfin-Player-macOS-Apple-Silicon-$APP_BUILD_RUN_ID-*" --dir candidate-build
           find candidate-build -type f
