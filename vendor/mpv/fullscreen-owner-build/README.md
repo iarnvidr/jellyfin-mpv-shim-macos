@@ -44,4 +44,27 @@ published original, so the controlled synthetic comparison establishes the
 presentation-state fix more directly. These results do not establish the
 original reporter's configuration or every cause of a hidden menu bar.
 
-A fresh packaged-app comparison is required separately from the engine builds.
+Fresh packaged application qualification:
+- Canonical standard macOS 15 build: https://github.com/iarnvidr/jellyfin-mpv-shim-macos/actions/runs/40386360255
+- Tested application source: `8ae673faeb8c9ce58d037382a87376594af301ca`.
+- Update ZIP: `Jellyfin-Player-0.2.9-Apple-Silicon.zip`, 84,630,642 bytes,
+  SHA-256 `170777e350c38fe700b5cd1fd8880fea33f543cb6cf4867066257e39934aa5c3`.
+- macOS 26, all five cases, and macOS 15, four cases:
+  https://github.com/iarnvidr/jellyfin-mpv-shim-macos/actions/runs/40388477811
+- macOS 15 natural HTTP-profile case:
+  https://github.com/iarnvidr/jellyfin-mpv-shim-macos/actions/runs/40389749357
+
+The standard build passed the native-control LuaJIT guard, native dependency
+and minimum-OS audits, signing checks, and extracted DMG/update ZIP playback
+checks. The same update ZIP was then used for both-platform menu regressions,
+including natural HTTP-profile changes, observed mode changes, and legitimate
+native/legacy fullscreen. The first matrix's macOS 15 natural case targeted a
+cached PID belonging to the previous case's bundle. A focused retry resolved
+the live engine by exact bundle path; application code and archive were unchanged.
+The ensuing qualification metadata commit changes documentation only.
+
+The rebuilt LuaJIT parser rejects a leading empty semicolon in a standalone
+Lua chunk. The application's native-controls integration retains its existing
+immediately invoked function inside an outer `do` block, preserving function
+scope and closures while separating it from the concatenated renderer. Both
+the standalone guard and actual packaged renderer/playback were exercised.

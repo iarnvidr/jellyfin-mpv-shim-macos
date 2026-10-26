@@ -37,6 +37,31 @@
         "menu_bar_visible": true
       }
     },
-    "packaged_app_qualification": "pending"
+    "packaged_app_qualification": {
+      "app_source_commit": "8ae673faeb8c9ce58d037382a87376594af301ca",
+      "app_build_run": "https://github.com/iarnvidr/jellyfin-mpv-shim-macos/actions/runs/40386360255",
+      "app_build_artifact_id": 12681083199,
+      "app_build_artifact_sha256": "8ff9d0e74bccf024e819953219e1f1fd782c2261e8dd771bca43d3164d124308",
+      "update_zip": "Jellyfin-Player-0.2.9-Apple-Silicon.zip",
+      "update_zip_bytes": 84630642,
+      "update_zip_sha256": "170777e350c38fe700b5cd1fd8880fea33f543cb6cf4867066257e39934aa5c3",
+      "platform_cases": {
+        "macos-26": {
+          "run": "https://github.com/iarnvidr/jellyfin-mpv-shim-macos/actions/runs/40388477811",
+          "passed_cases": 5,
+          "artifact_id": 12681223947
+        },
+        "macos-15": {
+          "matrix_run": "https://github.com/iarnvidr/jellyfin-mpv-shim-macos/actions/runs/40388477811",
+          "matrix_passed_cases": 4,
+          "matrix_artifact_id": 12681133960,
+          "natural_profile_retry_run": "https://github.com/iarnvidr/jellyfin-mpv-shim-macos/actions/runs/40389749357",
+          "retry_passed_cases": 1,
+          "retry_artifact_id": 12682234005
+        }
+      },
+      "fixture_retry_reason": "Initial macOS 15 natural case cached a PID from the previous case bundle; retry selected the live engine by exact bundle path without changing the application.",
+      "qualification_commit_scope": "Documentation and provenance only after the tested application commit."
+    }
   }
 }
