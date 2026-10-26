@@ -68,7 +68,7 @@ class PlaybackServer:
     def api(self, method, path, body=None):
         headers = {'Authorization': 'MediaBrowser Client="Menu Bar Proof", Device="CI", DeviceId="menu-bar-proof", Version="1"'}
         if self.token:
-            headers['X-Emby-Token'] = self.token
+            headers['Authorization'] += ', Token="' + self.token + '"'
         data = None if body is None else json.dumps(body).encode()
         if data is not None:
             headers['Content-Type'] = 'application/json'
