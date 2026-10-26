@@ -12,7 +12,7 @@ jobs:
       - name: Compile Nemotron's native AppKit probes
         run: |
           mkdir -p outputs
-          xcrun swiftc work/NativeMenus.swift work/NativeSettings.swift work/NativeMedia.swift tests/native/NemotronMacAudit.swift -o /tmp/nemotron-mac-audit -framework AppKit -framework MediaPlayer
+          xcrun swiftc -Xfrontend -disable-access-control work/NativeMenus.swift work/NativeSettings.swift work/NativeMedia.swift tests/native/NemotronMacAudit.swift -o /tmp/nemotron-mac-audit -framework AppKit -framework MediaPlayer
       - name: Execute native audit and collect individual results
         run: |
           python3 -c 'import subprocess; subprocess.run(["/tmp/nemotron-mac-audit", "outputs/nemotron-mac-audit.json"], check=True, timeout=120)'
