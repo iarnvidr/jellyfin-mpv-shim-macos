@@ -95,7 +95,7 @@ static NSString *axText(AXUIElementRef element, CFStringRef attribute) {
 }
 
 static void axNodesLimited(AXUIElementRef element, NSMutableArray *nodes, int depth, int maxDepth) {
-    if (depth > maxDepth || nodes.count > 1000) return;
+    if (depth > maxDepth || nodes.count > 10000) return;
     [nodes addObject:(__bridge id)element];
     CFTypeRef children = NULL;
     if (AXUIElementCopyAttributeValue(element, kAXChildrenAttribute, &children) != kAXErrorSuccess) return;
@@ -106,23 +106,11 @@ static void axNodes(AXUIElementRef element, NSMutableArray *nodes, int depth) {
     axNodesLimited(element, nodes, depth, 8);
 }
 
-static int menuAutoHide(NSString *choice) {
-    NSString *directory = @"/System/Library/ExtensionKit/Extensions";
-    NSMutableArray *bundles = [NSMutableArray array];
-    for (NSString *entry in [NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:nil]) {
-        if ([entry.lowercaseString containsString:@"menubar"] || [entry.lowercaseString containsString:@"menu-bar"]) {
-            NSBundle *bundle = [NSBundle bundleWithPath:[directory stringByAppendingPathComponent:entry]];
-            if (bundle.bundleIdentifier) [bundles addObject:bundle.bundleIdentifier];
-        }
-    }
-    if (!bundles.count) {
-        emitRecord(@{@"menuAutoHide": @"unavailable", @"reason": @"No Menu Bar settings extension in system manifest"}, nil);
-        return 1;
-    }
-    NSURL *url = [NSURL URLWithString:[@"x-apple.systempreferences:" stringByAppendingString:bundles.firstObject]];
+static int menuAutoHideInPane(NSString *choice, NSString *bundleID) {
+    NSURL *url = [NSURL URLWithString:[@"x-apple.systempreferences:" stringByAppendingString:bundleID]];
     [NSWorkspace.sharedWorkspace openURL:url];
     NSMutableArray *nodes = nil;
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:25];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:8];
     NSArray *choices = @[@"Always", @"Never", @"In Full Screen Only", @"On Desktop Only"];
     while (deadline.timeIntervalSinceNow > 0) {
         [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
@@ -139,7 +127,7 @@ static int menuAutoHide(NSString *choice) {
             NSString *label = [NSString stringWithFormat:@"%@ %@", axText(element, kAXTitleAttribute), axText(element, kAXDescriptionAttribute)];
             if (![choices containsObject:value] && [label rangeOfString:@"Automatically hide" options:NSCaseInsensitiveSearch].location == NSNotFound) continue;
             if ([choice isEqualToString:@"read"]) {
-                emitRecord(@{@"menuAutoHide": @"read", @"current": value, @"label": label, @"extension": bundles.firstObject}, nil);
+                emitRecord(@{@"menuAutoHide": @"read", @"current": value, @"label": label, @"extension": bundleID}, nil);
                 return 0;
             }
             AXError pressed = AXUIElementPerformAction(element, kAXPressAction);
@@ -165,9 +153,35 @@ static int menuAutoHide(NSString *choice) {
     for (id node in nodes) {
         AXUIElementRef element = (__bridge AXUIElementRef)node;
         [dump addObject:@{@"role": axText(element, kAXRoleAttribute), @"title": axText(element, kAXTitleAttribute),
-            @"description": axText(element, kAXDescriptionAttribute), @"value": axText(element, kAXValueAttribute)}];
+            @"description": axText(element, kAXDescriptionAttribute), @"value": axText(element, kAXValueAttribute),
+            @"identifier": axText(element, CFSTR("AXIdentifier"))}];
     }
-    emitRecord(@{@"menuAutoHide": @"unavailable", @"extensionCandidates": bundles, @"controls": dump}, nil);
+    emitRecord(@{@"menuAutoHide": @"unavailable", @"extension": bundleID, @"controls": dump}, nil);
+    return 1;
+}
+
+// Discover installed panes, including the Control Center owner on macOS 15.
+// Do not infer a successful setting from a defaults write or a guessed URL.
+static int menuAutoHide(NSString *choice) {
+    NSMutableArray *candidates = [NSMutableArray array];
+    NSMutableArray *inventory = [NSMutableArray array];
+    for (NSString *directory in @[@"/System/Library/ExtensionKit/Extensions", @"/System/Library/PreferencePanes"]) {
+        for (NSString *entry in [NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:nil]) {
+            NSBundle *bundle = [NSBundle bundleWithPath:[directory stringByAppendingPathComponent:entry]];
+            if (!bundle.bundleIdentifier) continue;
+            [inventory addObject:@{@"path": bundle.bundlePath, @"identifier": bundle.bundleIdentifier,
+                @"name": [bundle objectForInfoDictionaryKey:@"CFBundleDisplayName"] ?: @""}];
+            NSString *name = entry.lowercaseString;
+            if ([name containsString:@"menubar"] || [name containsString:@"menu-bar"] ||
+                [name containsString:@"controlcenter"] || [name containsString:@"dock"] || [name containsString:@"desktop"]) {
+                [candidates addObject:bundle.bundleIdentifier];
+            }
+        }
+    }
+    emitRecord(@{@"installedSettingsPanes": inventory, @"candidatePanes": candidates}, nil);
+    for (NSString *bundleID in candidates) {
+        if (menuAutoHideInPane(choice, bundleID) == 0) return 0;
+    }
     return 1;
 }
 
