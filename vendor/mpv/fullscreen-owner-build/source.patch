@@ -1,0 +1,23 @@
+--- a/video/out/mac/window.swift
++++ b/video/out/mac/window.swift
+@@ -29,6 +29,8 @@
+ 
+     var unfsContentFrame: NSRect = NSRect(x: 0, y: 0, width: 160, height: 90)
+     var isInFullscreen: Bool = false
++    // Exit using the mechanism that entered this fullscreen session.
++    var usesNativeFullscreen: Bool = true
+     var isMoving: Bool = false
+     var previousStyleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
+ 
+@@ -140,7 +142,10 @@
+             setFrame(frame, display: true)
+         }
+ 
+-        if Bool(option.vo.native_fs) {
++        if !isInFullscreen {
++            usesNativeFullscreen = Bool(option.vo.native_fs)
++        }
++        if usesNativeFullscreen {
+             super.toggleFullScreen(sender)
+         } else {
+             if !isInFullscreen {
