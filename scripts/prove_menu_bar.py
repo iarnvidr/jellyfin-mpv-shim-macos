@@ -20,6 +20,7 @@ from menu_bar_ui_preferences import exercise_ui_preferences
 from menu_bar_browser import exercise_browser
 from menu_bar_transitions import exercise_transitions
 from menu_bar_spaces import exercise_spaces
+from menu_bar_diagnostics import exercise_diagnostics
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'outputs/menu-bar-proof'
@@ -120,6 +121,8 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'transitions':
              'original-transition-followup', 'observed-transition-followup']
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'spaces':
     cases = ['original-spaces']
+if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'diagnostics':
+    cases = ['original-diagnostics']
 requested_cases = os.environ.get('JELLYFIN_MENU_PROOF_CASE_FILTER', '')
 if requested_cases:
     selected = requested_cases.split(',')
@@ -158,7 +161,7 @@ for case in cases:
             shutil.copy2(icon, target)
         run('codesign', '--force', '--deep', '--sign', '-', app)
     original_case = case.startswith('original-')
-    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus', 'transitions', 'spaces')
+    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus', 'transitions', 'spaces', 'diagnostics')
     if not original_case:
         # Core launches mpv with its own embedded library, not the outer
         # host's duplicate. Replace each copy and verify the probe ran below.
@@ -287,7 +290,11 @@ for case in cases:
                 run(PROBE, '--remind-update', proc.pid)
                 time.sleep(1)
             playing_state = snapshot(case + '-playing-windowed', engine, activate=False,
-                                     require_frontmost=os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') != 'spaces')
+                                     require_frontmost=os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') not in ('spaces', 'diagnostics'))
+            if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'diagnostics':
+                result = exercise_diagnostics(case, OUT, app, engine, proc.pid, snapshot, request, config, PROBE, ipc)
+                summary.append({'case': case, 'diagnostics': result})
+                continue
             if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'spaces':
                 result = exercise_spaces(case, OUT, app, native, ipc, engine, proc.pid, server,
                                          snapshot, config, request, PROBE)

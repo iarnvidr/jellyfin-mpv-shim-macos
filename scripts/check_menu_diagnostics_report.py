@@ -119,6 +119,7 @@ def main():
     parser.add_argument('--require-background-effective', type=int)
     parser.add_argument('--require-effective', type=int)
     parser.add_argument('--require-kvo', action='store_true')
+    parser.add_argument('--require-engine-requested', type=int)
     parser.add_argument('--same-frozen-as', type=Path)
     parser.add_argument('--newer-than', type=Path)
     parser.add_argument('--exclude-sentinel', action='append', default=[])
@@ -156,6 +157,13 @@ def main():
             'Inactive recorder did not see the independently controlled effective system options'
     if args.require_kvo:
         assert any(e['reason'] == 'effectivePresentation' for e in entries), 'Effective-option KVO was not observed'
+    if args.require_engine_requested is not None:
+        roles = [report['own']] + ([peer['document']] if 'document' in peer else [])
+        assert any(doc['identity']['role'] == 'engine'
+                   and any(entry['state']['requestedPresentation'] == args.require_engine_requested
+                           and entry['state']['effectivePresentation'] == args.require_engine_requested
+                           for entry in [doc['initial']] + doc['history']) for doc in roles), \
+            'Frozen engine history lacks the independently established app-owned hiding state'
     if args.same_frozen_as:
         assert raw == args.same_frozen_as.read_bytes(), 'Repeated Settings opening replaced the frozen report'
     if args.newer_than:
