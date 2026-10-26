@@ -70,7 +70,12 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
     app.parent.mkdir()
     shutil.copytree(original, app, symlinks=True)
     if case != 'original-release':
-        shutil.copy2(OUT / 'native-scroll.dylib', app / 'Contents/Frameworks/native-scroll.dylib')
+        # Core launches mpv with its own embedded library, not the outer
+        # host's duplicate. Replace each copy and verify the probe ran below.
+        libraries = list(app.rglob('native-scroll.dylib'))
+        assert libraries
+        for library in libraries:
+            shutil.copy2(OUT / 'native-scroll.dylib', library)
         run('codesign', '--force', '--deep', '--sign', '-', app)
     config = OUT / case / 'profile'
     config.mkdir()
@@ -102,10 +107,16 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             if engine is None:
                 raise RuntimeError(f'{case}: engine and native menus did not start')
             time.sleep(3)
+            run(PROBE, '--dismiss-local-network')
             # The host intentionally forwards activation to the engine after
             # 200 ms. Record that handoff instead of treating it as a failure.
             host_state = snapshot(case + '-host-active', proc.pid, require_frontmost=False)
             engine_state = snapshot(case + '-engine-active', engine)
+            if case != 'original-release':
+                records = [json.loads(line) for line in (OUT / f'{case}-in-process.jsonl').read_text().splitlines()]
+                assert records, 'Instrumented library did not produce runtime records'
+                expected_policy = 0 if case == 'instrumented-regular' else 1
+                assert engine_state['frontmost']['policy'] == expected_policy, 'Activation policy intervention did not take effect'
             initial = request(config, 'state')
             (OUT / f'{case}-core-state.json').write_text(json.dumps(initial, indent=2) + '\n')
             # Reproduce the transition as well as a cold windowed launch.

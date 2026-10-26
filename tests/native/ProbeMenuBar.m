@@ -44,9 +44,57 @@ static void emitRecord(NSDictionary *record, NSString *path) {
 }
 
 #ifdef PROBE_STANDALONE
+static NSString *axText(AXUIElementRef element, CFStringRef attribute) {
+    CFTypeRef value = NULL;
+    if (AXUIElementCopyAttributeValue(element, attribute, &value) != kAXErrorSuccess) return @"";
+    id object = CFBridgingRelease(value);
+    return [object isKindOfClass:NSString.class] ? object : @"";
+}
+
+static void axNodes(AXUIElementRef element, NSMutableArray *nodes, int depth) {
+    if (depth > 8 || nodes.count > 1000) return;
+    [nodes addObject:(__bridge id)element];
+    CFTypeRef children = NULL;
+    if (AXUIElementCopyAttributeValue(element, kAXChildrenAttribute, &children) != kAXErrorSuccess) return;
+    for (id child in CFBridgingRelease(children)) axNodes((__bridge AXUIElementRef)child, nodes, depth + 1);
+}
+
+static void dismissLocalNetworkPrompt(void) {
+    for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
+        AXUIElementRef root = AXUIElementCreateApplication(app.processIdentifier);
+        CFTypeRef windows = NULL;
+        AXError result = AXUIElementCopyAttributeValue(root, kAXWindowsAttribute, &windows);
+        CFRelease(root);
+        if (result != kAXErrorSuccess) continue;
+        for (id window in CFBridgingRelease(windows)) {
+            NSMutableArray *nodes = [NSMutableArray array];
+            axNodes((__bridge AXUIElementRef)window, nodes, 0);
+            NSMutableString *text = [NSMutableString string];
+            for (id node in nodes) {
+                AXUIElementRef element = (__bridge AXUIElementRef)node;
+                [text appendFormat:@" %@ %@ %@", axText(element, kAXTitleAttribute),
+                    axText(element, kAXDescriptionAttribute), axText(element, kAXValueAttribute)];
+            }
+            if ([text rangeOfString:@"local network" options:NSCaseInsensitiveSearch].location == NSNotFound) continue;
+            for (id node in nodes) {
+                AXUIElementRef element = (__bridge AXUIElementRef)node;
+                NSString *title = axText(element, kAXTitleAttribute);
+                if ([title isEqualToString:@"Don’t Allow"] || [title isEqualToString:@"Don't Allow"]) {
+                    AXError pressed = AXUIElementPerformAction(element, kAXPressAction);
+                    emitRecord(@{@"localNetworkPrompt": @"dismissed", @"axResult": @(pressed)}, nil);
+                    return;
+                }
+            }
+        }
+    }
+    emitRecord(@{@"localNetworkPrompt": @"not-found"}, nil);
+}
+
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        if (argc > 1) {
+        if (argc > 1 && strcmp(argv[1], "--dismiss-local-network") == 0) {
+            dismissLocalNetworkPrompt();
+        } else if (argc > 1) {
             NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:atoi(argv[1])];
             BOOL activated = [app activateWithOptions:NSApplicationActivateIgnoringOtherApps];
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:2]];
