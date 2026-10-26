@@ -15,7 +15,7 @@ on:
         default: 'default'
       runner:
         type: choice
-        options: ['both', 'macos-26']
+        options: ['both', 'macos-26', 'macos-15']
         default: 'both'
       case_filter:
         type: string
@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.runner == 'macos-26' && '["macos-26"]' || '["macos-15","macos-26"]') }}
+        os: ${{ fromJSON(inputs.runner == 'macos-26' && '["macos-26"]' || inputs.runner == 'macos-15' && '["macos-15"]' || '["macos-15","macos-26"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
@@ -127,11 +127,12 @@ jobs:
         env:
           ENGINE_VARIANT: ${{ inputs.engine_variant }}
           APP_BUILD_RUN_ID: ${{ inputs.app_build_run_id }}
+          CASE_FILTER: ${{ inputs.case_filter }}
         run: |
           if [ "$ENGINE_VARIANT" = rebuilt-patched ] || [ -n "$APP_BUILD_RUN_ID" ]; then
-            python3 scripts/check_menu_bar_regression.py --require-visible
+            python3 scripts/check_menu_bar_regression.py --require-visible --cases "$CASE_FILTER"
           else
-            python3 scripts/check_menu_bar_regression.py
+            python3 scripts/check_menu_bar_regression.py --cases "$CASE_FILTER"
           fi
       - name: Preserve packaged core logs
         if: always()

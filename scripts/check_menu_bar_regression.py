@@ -6,17 +6,22 @@ from pathlib import Path
 parser = argparse.ArgumentParser()
 parser.add_argument('--require-visible', action='store_true')
 parser.add_argument('--evidence-dir', type=Path, default=Path('outputs/menu-bar-proof'))
+parser.add_argument('--cases', default='')
 args = parser.parse_args()
 root = args.evidence_dir
 ocr = {Path(row['path']).stem: row for row in map(json.loads, (root / 'menu-pixels-ocr.jsonl').read_text().splitlines())}
 results = []
-for name in ('original-http-profile-actual-menu-exit-2',
+phases = ('original-http-profile-actual-menu-exit-2',
              'observed-switch-legacy-to-native-second-exit-request-settled',
              'observed-switch-legacy-to-native-next-entry-exit',
              'original-switch-native-to-legacy-second-exit-request-settled',
              'original-switch-native-to-legacy-next-entry-exit',
              'original-intent-native-intentional-windowed',
-             'original-intent-legacy-intentional-windowed'):
+             'original-intent-legacy-intentional-windowed')
+if args.cases:
+    phases = tuple(name for name in phases
+                   if any(name.startswith(case + '-') for case in args.cases.split(',')))
+for name in phases:
     state_path = root / (name + '.json')
     if not state_path.exists():
         continue
@@ -40,5 +45,5 @@ for name in ('original-http-profile-actual-menu-exit-2',
                     'passed': windowed and ax_windowed and jellyfin_active and menu_visible})
 (root / 'menu-regression-verdict.json').write_text(json.dumps(results, indent=2))
 print(json.dumps(results, indent=2))
-if args.require_visible and (len(results) < 2 or not all(row['passed'] for row in results)):
+if args.require_visible and (not phases or len(results) != len(phases) or not all(row['passed'] for row in results)):
     raise SystemExit('Actual windowed menu regression failed or required phase was not reached')

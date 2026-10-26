@@ -213,7 +213,14 @@ for case in cases:
             time.sleep(3)
             snapshot(case + '-cold-launch-before-prompt')
             run(PROBE, '--dismiss-local-network')
-            snapshot(case + '-cold-launch', engine, require_frontmost=False, activate=False)
+            cold_state = snapshot(case + '-cold-launch', engine, require_frontmost=False, activate=False)
+            # The local-network approval can coincide with a replacement engine.
+            # Resolve the live process belonging to this exact app, rather than
+            # sending login AX requests to the pre-prompt cached PID.
+            current_engines = [process for process in cold_state['jellyfinProcesses']
+                               if process.get('bundlePath') == str(app / 'Contents/Resources/mpv.app')]
+            assert len(current_engines) == 1, current_engines
+            engine = current_engines[0]['pid']
             # The host intentionally forwards activation to the engine after
             # 200 ms. Record that handoff instead of treating it as a failure.
             host_state = snapshot(case + '-host-active', proc.pid, require_frontmost=False, activate=not launchservices)
