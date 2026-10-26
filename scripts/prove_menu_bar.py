@@ -282,7 +282,12 @@ for case in cases:
                 # Establish the playback engine's foreground precondition
                 # before the experiment; subsequent transition captures are passive.
                 snapshot(case + '-explicit-precondition-activation', engine)
-            playing_state = snapshot(case + '-playing-windowed', engine, activate=False)
+            if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'spaces':
+                snapshot(case + '-before-optional-update-reminder', activate=False)
+                run(PROBE, '--remind-update', proc.pid)
+                time.sleep(1)
+            playing_state = snapshot(case + '-playing-windowed', engine, activate=False,
+                                     require_frontmost=os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') != 'spaces')
             if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'spaces':
                 result = exercise_spaces(case, OUT, app, native, ipc, engine, proc.pid, server,
                                          snapshot, config, request, PROBE)

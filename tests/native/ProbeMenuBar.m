@@ -255,7 +255,22 @@ static int loginPlayer(pid_t pid, NSArray<NSString *> *values) {
 
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        if (argc == 3 && strcmp(argv[1], "--watch-spaces") == 0) {
+        if (argc == 3 && strcmp(argv[1], "--remind-update") == 0) {
+            AXUIElementRef root = AXUIElementCreateApplication(atoi(argv[2]));
+            NSMutableArray *nodes = [NSMutableArray array]; axNodes(root, nodes, 0);
+            BOOL found = NO;
+            for (id node in nodes) {
+                AXUIElementRef element = (__bridge AXUIElementRef)node;
+                if (![axText(element, kAXRoleAttribute) isEqualToString:@"AXButton"]) continue;
+                if (![axText(element, kAXTitleAttribute) isEqualToString:@"Remind Me Later"]
+                    && ![axText(element, kAXDescriptionAttribute) isEqualToString:@"Remind Me Later"]) continue;
+                AXError error = AXUIElementPerformAction(element, kAXPressAction);
+                emitRecord(@{@"updateReminder": @"normal-button-press", @"axResult": @(error)}, nil);
+                found = YES; break;
+            }
+            CFRelease(root);
+            if (!found) emitRecord(@{@"updateReminder": @"button-not-present"}, nil);
+        } else if (argc == 3 && strcmp(argv[1], "--watch-spaces") == 0) {
             NSString *path = [NSString stringWithUTF8String:argv[2]];
             [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification
                 object:nil queue:nil usingBlock:^(NSNotification *note) {

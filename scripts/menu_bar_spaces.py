@@ -63,6 +63,10 @@ def exercise_spaces(case, out, app, native, ipc, engine, host, server,
         return result
     action('establish-engine-foreground', lambda: shell(probe, engine))
     baseline = capture('windowed-before-space-transition')
+    if baseline['frontmost'].get('pid') != engine:
+        result['limitation'] = 'The engine did not become foreground before the Space experiment'
+        preserve()
+        return result
     action('native-fs-yes', lambda: PlaybackServer.mpv(ipc, ['set_property', 'native-fs', True]))
     model = request(config, 'state')
     stop_command = model.get('now_playing', {}).get('commands', {}).get('stop')
