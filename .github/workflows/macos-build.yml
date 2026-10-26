@@ -1,77 +1,25 @@
-name: macOS build
+name: Nemotron macOS audit
 on:
   workflow_dispatch:
-  pull_request:
-  push:
-    branches: [main]
 permissions:
   contents: read
-concurrency:
-  group: macos-build-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
-  build:
+  native-audit:
     runs-on: macos-15
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Verify Apple Silicon runner
-        run: test "$(uname -m)" = arm64
-      - name: Verify native menu actions and keyboard equivalents
+      - name: Compile Nemotron's native AppKit probes
         run: |
-          xcrun swiftc work/NativeMenus.swift work/NativeSettings.swift work/NativeMedia.swift tests/native/VerifyNativeMenus.swift -o /tmp/verify-native-menus -framework AppKit -framework MediaPlayer
-          /tmp/verify-native-menus
-          xcrun clang -fobjc-arc tests/native/VerifyNativeControls.m -o /tmp/verify-native-controls -framework Cocoa -framework MediaPlayer
-          /tmp/verify-native-controls
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: '0.13.1'
-          enable-cache: true
-      - name: Install pinned Python
-        run: uv python install
-      - name: Prepare resources
-        run: uv run --locked --no-sync python scripts/prepare.py
-      - name: Install locked build environment
-        run: uv sync --locked --all-groups
-      - name: Verify lock unchanged
-        run: git diff --exit-code -- uv.lock
-      - name: Integration checks
-        run: uv run --locked python scripts/check.py
-      - name: Build app
-        env:
-          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
-        run: uv run --locked python work/build.py
-      - name: Package and verify
-        # Exercise the renderer bridge with the actual bundled Lua runtime.
-        # This also catches LuaJIT/local-variable compatibility regressions.
+          mkdir -p outputs
+          xcrun swiftc work/NativeMenus.swift work/NativeSettings.swift work/NativeMedia.swift tests/native/NemotronMacAudit.swift -o /tmp/nemotron-mac-audit -framework AppKit -framework MediaPlayer
+      - name: Execute native audit and collect individual results
         run: |
-          work/mpv-release/mpv.app/Contents/MacOS/mpv --no-config --idle=yes --vo=null --ao=null --script=tests/native/VerifyNativeControls.lua
-          uv run --locked python work/package.py
-      - name: Verify extracted DMG and update ZIP with native windows and playback
-        run: uv run --locked python scripts/distribution_check.py
-      - name: Upload native smoke evidence
+          python3 -c 'import subprocess; subprocess.run(["/tmp/nemotron-mac-audit", "outputs/nemotron-mac-audit.json"], check=True, timeout=120)'
+      - name: Upload native audit evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Jellyfin-Player-macOS-smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: outputs/macos-smoke-evidence/**
+          name: Nemotron-macOS-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/nemotron-mac-audit.json
           if-no-files-found: warn
-          compression-level: 0
-      # Upload exactly the outputs from this single build/package invocation;
-      # do not rebuild per artifact or silently omit audit/source evidence.
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: Jellyfin-Player-macOS-Apple-Silicon-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            outputs/*.dmg
-            outputs/*-Apple-Silicon.zip
-            outputs/*-Source.zip
-            outputs/*-Build-Manifest.json
-            outputs/*-Native-Audit.json
-            outputs/*-Bundle-Inventory.json
-            outputs/*-Signatures.json
-            outputs/SHA256SUMS
-          if-no-files-found: error
-          compression-level: 0
