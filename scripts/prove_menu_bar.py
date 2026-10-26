@@ -203,7 +203,8 @@ for case in cases:
                 if proc.poll() is not None:
                     raise RuntimeError(f'{case}: host exited {proc.returncode}')
                 state = json.loads(run(PROBE, capture_output=True, text=True).stdout)
-                engines = [a for a in state['jellyfinProcesses'] if a['bundle'] == 'org.jellyfin.mpvshim.player']
+                engines = [a for a in state['jellyfinProcesses']
+                           if a.get('bundlePath') == str(app / 'Contents/Resources/mpv.app')]
                 if engines and len(list(native.glob('[0-9]*.json'))) >= 2:
                     engine = engines[0]['pid']
                     break
@@ -214,9 +215,9 @@ for case in cases:
             snapshot(case + '-cold-launch-before-prompt')
             run(PROBE, '--dismiss-local-network')
             cold_state = snapshot(case + '-cold-launch', engine, require_frontmost=False, activate=False)
-            # The local-network approval can coincide with a replacement engine.
-            # Resolve the live process belonging to this exact app, rather than
-            # sending login AX requests to the pre-prompt cached PID.
+            # Another case's engine may still be registered under the same ID.
+            # Resolve this exact app after approval rather than trusting a PID
+            # cached before an asynchronous launch or permission transition.
             current_engines = [process for process in cold_state['jellyfinProcesses']
                                if process.get('bundlePath') == str(app / 'Contents/Resources/mpv.app')]
             assert len(current_engines) == 1, current_engines
