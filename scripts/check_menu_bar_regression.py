@@ -12,6 +12,9 @@ ocr = {Path(row['path']).stem: row for row in map(json.loads, (root / 'menu-pixe
 results = []
 for name in ('original-http-profile-actual-menu-exit-2',
              'observed-switch-legacy-to-native-second-exit-request-settled',
+             'observed-switch-legacy-to-native-next-entry-exit',
+             'original-switch-native-to-legacy-second-exit-request-settled',
+             'original-switch-native-to-legacy-next-entry-exit',
              'original-intent-native-intentional-windowed',
              'original-intent-legacy-intentional-windowed'):
     state_path = root / (name + '.json')

@@ -31,6 +31,17 @@ def exercise_mechanism(case, out, app, native, ipc, engine, server, snapshot, de
         # Idempotent second false request cannot accidentally enter fullscreen.
         fullscreen(False)
         record('second-exit-request-settled')
+        # The current session owns its exit, but a subsequent entry must sample
+        # the updated option rather than freezing the original mechanism.
+        fullscreen(True)
+        next_entry = record('next-entry-uses-updated-mode')
+        ax_windows = [window for window in next_entry['jellyfinAXWindows']
+                      if window['pid'] == engine]
+        assert ax_windows, 'No external AX window observed for next entry'
+        assert any(window.get('AXFullScreen') is True for window in ax_windows) is (not initial), \
+            'Next entry did not use the updated fullscreen mechanism'
+        fullscreen(False)
+        record('next-entry-exit')
     elif 'intent-' in case:
         mpv(['set_property', 'native-fs', case.endswith('native')])
         fullscreen(True)
