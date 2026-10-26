@@ -1,170 +1,30 @@
-name: Menu bar runtime proof
+name: Bad menu state automatic update retirement
 on:
   workflow_dispatch:
-    inputs:
-      original_only:
-        type: boolean
-        default: false
-      native_fs:
-        type: choice
-        options: ['yes', 'no']
-        default: 'yes'
-      scenario:
-        type: choice
-        options: ['default', 'launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus', 'video-hud']
-        default: 'default'
-      runner:
-        type: choice
-        options: ['both', 'macos-26', 'macos-15']
-        default: 'both'
-      case_filter:
-        type: string
-        default: ''
-      engine_build_run_id:
-        type: string
-        default: ''
-      engine_variant:
-        type: choice
-        options: ['release', 'rebuilt-original', 'rebuilt-patched']
-        default: 'release'
-      app_build_run_id:
-        type: string
-        default: ''
-      release_version:
-        type: string
-        default: '0.2.9'
-      require_browser_context:
-        type: boolean
-        default: false
 permissions:
   contents: read
 jobs:
   reproduce:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ${{ fromJSON(inputs.runner == 'macos-26' && '["macos-26"]' || inputs.runner == 'macos-15' && '["macos-15"]' || '["macos-15","macos-26"]') }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    runs-on: macos-26
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Download exact published release
-        if: inputs.app_build_run_id == ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ inputs.release_version || '0.2.9' }}
-        run: |
-          sw_vers
-          uname -m
-          mkdir release
-          gh release download "v$RELEASE_VERSION" --repo iarnvidr/jellyfin-mpv-shim-macos --pattern "Jellyfin-Player-$RELEASE_VERSION-Apple-Silicon.zip" --pattern SHA256SUMS --dir release
-          cd release
-          awk -v file="Jellyfin-Player-$RELEASE_VERSION-Apple-Silicon.zip" '$2 == file' SHA256SUMS > zip-checksum
-          test -s zip-checksum
-          shasum -a 256 --check zip-checksum
-          ditto -x -k "Jellyfin-Player-$RELEASE_VERSION-Apple-Silicon.zip" .
-      - name: Download exact freshly packaged candidate
-        if: inputs.app_build_run_id != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          APP_BUILD_RUN_ID: ${{ inputs.app_build_run_id }}
-        run: |
-          candidate_ready=0
-          for candidate_attempt in {1..120}; do
-            candidate_status="$(gh run view "$APP_BUILD_RUN_ID" --repo iarnvidr/jellyfin-mpv-shim-macos --json status,conclusion --jq '.status + ":" + .conclusion')"
-            case "$candidate_status" in
-              completed:success) candidate_ready=1; break ;;
-              completed:*) echo "Candidate build rejected: $candidate_status"; exit 1 ;;
-            esac
-            sleep 5
-          done
-          test "$candidate_ready" = 1
-          mkdir release
-          gh run download "$APP_BUILD_RUN_ID" --repo iarnvidr/jellyfin-mpv-shim-macos --pattern "Jellyfin-Player-macOS-Apple-Silicon-$APP_BUILD_RUN_ID-*" --dir candidate-build
-          find candidate-build -type f
-          python3 - <<'PY'
-          from pathlib import Path
-          import shutil
-          for pattern in ('*-Apple-Silicon.zip', 'SHA256SUMS'):
-              matches = list(Path('candidate-build').rglob(pattern))
-              assert len(matches) == 1, (pattern, matches)
-              shutil.copy2(matches[0], 'release')
-          PY
-          cd release
-          awk '$2 ~ /-Apple-Silicon.zip$/' SHA256SUMS > zip-checksum
-          test -s zip-checksum
-          shasum -a 256 --check zip-checksum
-          ditto -x -k ./*-Apple-Silicon.zip .
-      - name: Download complete rebuilt engine comparison bundle
-        if: inputs.engine_variant != 'release' && inputs.engine_build_run_id != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ENGINE_BUILD_RUN_ID: ${{ inputs.engine_build_run_id }}
-          ENGINE_VARIANT: ${{ inputs.engine_variant }}
-        run: |
-          gh run download "$ENGINE_BUILD_RUN_ID" --repo iarnvidr/jellyfin-mpv-shim-macos --name mpv-fullscreen-comparison-macos-15-arm --dir engine-build
-          mkdir engine
-          tar -xzf "engine-build/$ENGINE_VARIANT-mpv.tar.gz" -C engine
-          test -x engine/mpv.app/Contents/MacOS/mpv
-          echo "JELLYFIN_MENU_PROOF_ENGINE_APP=$PWD/engine/mpv.app" >> "$GITHUB_ENV"
-          mkdir -p outputs/menu-bar-proof
-          cp engine-build/*.json engine-build/*.patch outputs/menu-bar-proof/ || true
-      - name: Download isolated official Jellyfin server with bundled FFmpeg
+      - name: Download isolated server fixture
         run: |
           curl --fail --location --retry 3 https://repo.jellyfin.org/files/server/macos/stable/v12.3/arm64/jellyfin_12.3-arm64.dmg --output "$RUNNER_TEMP/jellyfin.dmg"
           hdiutil attach "$RUNNER_TEMP/jellyfin.dmg" -nobrowse -mountpoint "$RUNNER_TEMP/jellyfin-volume"
           mkdir server
           ditto "$RUNNER_TEMP/jellyfin-volume/Jellyfin.app" server/Jellyfin.app
           hdiutil detach "$RUNNER_TEMP/jellyfin-volume"
-          find server -type f \( -name jellyfin -o -name ffmpeg -o -name ffprobe \)
-      - name: Capture actual server playback and controlled activation policy comparison
-        env:
-          JELLYFIN_MENU_PROOF_ORIGINAL_ONLY: ${{ inputs.original_only && '1' || '0' }}
-          JELLYFIN_MENU_PROOF_NATIVE_FS: ${{ inputs.native_fs || 'yes' }}
-          JELLYFIN_MENU_PROOF_SCENARIO: ${{ inputs.scenario || 'default' }}
-          JELLYFIN_MENU_PROOF_CASE_FILTER: ${{ inputs.case_filter }}
-          JELLYFIN_MENU_REQUIRE_BROWSER_CONTEXT: ${{ inputs.require_browser_context && '1' || '0' }}
-        run: python3 scripts/prove_menu_bar.py
-      - name: Read actual menu-strip screenshot text with Apple Vision
+      - name: Prove bad menu state then automatically update public 0.2.9 to public 0.2.11
+        run: python3 scripts/prove_bad_menu_update.py
+      - uses: actions/upload-artifact@v4
         if: always()
-        run: |
-          xcrun swiftc tests/native/ReadMenuBar.swift -o /tmp/read-menu-bar -framework AppKit -framework Vision
-          find outputs/menu-bar-proof -name '*.png' -print0 | xargs -0 /tmp/read-menu-bar > outputs/menu-bar-proof/menu-pixels-ocr.jsonl
-      - name: Check screenshot regression for rebuilt engine comparison
-        if: always() && inputs.scenario != 'browser-focus' && inputs.scenario != 'video-hud' && (inputs.engine_variant != 'release' || inputs.app_build_run_id != '')
-        env:
-          ENGINE_VARIANT: ${{ inputs.engine_variant }}
-          APP_BUILD_RUN_ID: ${{ inputs.app_build_run_id }}
-          CASE_FILTER: ${{ inputs.case_filter }}
-        run: |
-          if [ "$ENGINE_VARIANT" = rebuilt-patched ] || [ -n "$APP_BUILD_RUN_ID" ]; then
-            python3 scripts/check_menu_bar_regression.py --require-visible --cases "$CASE_FILTER"
-          else
-            python3 scripts/check_menu_bar_regression.py --cases "$CASE_FILTER"
-          fi
-      - name: Verify actual browser gestures and passive menu pixels
-        if: always() && inputs.scenario == 'browser-focus'
-        env:
-          REQUIRE_BROWSER_CONTEXT: ${{ inputs.require_browser_context && '1' || '0' }}
-        run: |
-          if [ "$REQUIRE_BROWSER_CONTEXT" = 1 ]; then
-            python3 scripts/check_browser_menu_proof.py --require-context
-          else
-            python3 scripts/check_browser_menu_proof.py
-          fi
-      - name: Preserve packaged core logs
-        if: always()
-        run: cp -R "$HOME/Library/Logs/Jellyfin MPV Shim" outputs/menu-bar-proof/core-logs || true
-      - name: Upload screenshots and runtime records
-        if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: menu-bar-runtime-proof-${{ matrix.os }}
+          name: bad-menu-state-update
           path: |
-            outputs/menu-bar-proof/*.png
-            outputs/menu-bar-proof/*.json
-            outputs/menu-bar-proof/*.jsonl
-            outputs/menu-bar-proof/*.log
-            outputs/menu-bar-proof/core-logs
-            outputs/menu-bar-proof/*/native-menus/*.json
-          if-no-files-found: error
+            outputs/bad-menu-update/*.json
+            outputs/bad-menu-update/*.jsonl
+            outputs/bad-menu-update/*.log
+            outputs/bad-menu-update/*.png
+            outputs/bad-menu-update/observer.m
