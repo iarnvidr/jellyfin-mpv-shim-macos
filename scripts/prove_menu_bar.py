@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import plistlib
+import platform
 from pathlib import Path
 import shutil
 import signal
@@ -35,6 +36,7 @@ def snapshot(name, pid=None, require_frontmost=True, activate=True):
     # chance to repair it. Focus switching/reopen explicitly opt into activation.
     result = run(PROBE, *([pid] if pid and activate else []), capture_output=True, text=True)
     record = json.loads(result.stdout)
+    record['macOSVersion'] = platform.mac_ver()[0]
     if CURRENT_IPC and CURRENT_IPC.exists():
         properties = {}
         for prop in ('fullscreen', 'native-fs', 'window-maximized', 'window-minimized', 'ontop', 'border', 'time-pos',
