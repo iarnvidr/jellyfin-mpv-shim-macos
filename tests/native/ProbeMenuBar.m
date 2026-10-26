@@ -53,6 +53,7 @@ static NSDictionary *desktopState(void) {
     }
 #endif
     NSMutableArray *playerWindows = [NSMutableArray array];
+    NSMutableArray *finderWindows = [NSMutableArray array];
     NSSet *playerPIDs = [NSSet setWithArray:[apps valueForKey:@"pid"]];
     for (NSDictionary *window in windows) {
         int level = [window[(id)kCGWindowLayer] intValue];
@@ -60,6 +61,7 @@ static NSDictionary *desktopState(void) {
             [bars addObject:window];
         }
         if ([playerPIDs containsObject:window[(id)kCGWindowOwnerPID]]) [playerWindows addObject:window];
+        if ([window[(id)kCGWindowOwnerName] isEqualToString:@"Finder"]) [finderWindows addObject:window];
         CGRect bounds;
         if (CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)window[(id)kCGWindowBounds], &bounds)
             && CGRectIntersectsRect(bounds, CGRectMake(display.origin.x, display.origin.y, display.size.width, 46)))
@@ -74,6 +76,7 @@ static NSDictionary *desktopState(void) {
         @"displayBounds": @{@"x": @(display.origin.x), @"y": @(display.origin.y), @"width": @(display.size.width), @"height": @(display.size.height)},
         @"pointerPosition": @{@"x": @(cursor.x), @"y": @(cursor.y)},
         @"jellyfinProcesses": apps, @"onScreenMenuWindows": bars ?: @[], @"jellyfinWindows": playerWindows,
+        @"finderWindows": finderWindows,
         @"screens": screens, @"jellyfinAXWindows": axWindows, @"menuStripIntersectingWindows": intersections,
         @"managedSpaces": managedSpaces ?: @[], @"managedSpacesAPIAvailable": @(connectionID && copySpaces),
         @"accessibilityTrusted": @(AXIsProcessTrusted()),
@@ -317,6 +320,7 @@ int main(int argc, const char **argv) {
             CGPoint point = CGPointMake(atof(argv[2]), atof(argv[3]));
             CGWarpMouseCursorPosition(point);
             CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, point, kCGMouseButtonLeft);
+            CGEventSetFlags(event, 0);
             CGEventPost(kCGHIDEventTap, event);
             CFRelease(event);
             [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
