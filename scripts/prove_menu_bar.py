@@ -17,6 +17,7 @@ from menu_bar_preferences import exercise_preferences
 from menu_bar_mechanisms import exercise_mechanism
 from menu_bar_ui_preferences import exercise_ui_preferences
 from menu_bar_browser import exercise_browser
+from menu_bar_video_hud import exercise_video_hud
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'outputs/menu-bar-proof'
@@ -108,7 +109,7 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'mechanisms':
              'original-intent-native', 'original-intent-legacy']
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'preferences-ui':
     cases = ['original-launchservices']
-if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'browser-focus':
+if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('browser-focus', 'video-hud'):
     cases = ['original-browser']
 requested_cases = os.environ.get('JELLYFIN_MENU_PROOF_CASE_FILTER', '')
 if requested_cases:
@@ -148,7 +149,7 @@ for case in cases:
             shutil.copy2(icon, target)
         run('codesign', '--force', '--deep', '--sign', '-', app)
     original_case = case.startswith('original-')
-    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus')
+    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus', 'video-hud')
     if not original_case:
         # Core launches mpv with its own embedded library, not the outer
         # host's duplicate. Replace each copy and verify the probe ran below.
@@ -200,6 +201,8 @@ for case in cases:
     native.mkdir()
     env = dict(os.environ, JELLYFIN_PLAYER_MENU_DIAGNOSTICS=str(native),
                JELLYFIN_MENU_PROBE_OUTPUT=str(OUT / f'{case}-in-process.jsonl'))
+    if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'video-hud':
+        env['JMS_TEST_OBSERVE'] = '1'
     if case == 'instrumented-regular':
         env['JELLYFIN_MENU_PROBE_REGULAR'] = '1'
     prior_sessions = {s['Id'] for s in server.api('GET', '/Sessions')}
@@ -244,8 +247,12 @@ for case in cases:
             snapshot(case + '-after-real-login', engine, require_frontmost=False, activate=False)
             device_id = active_profile(config)['device_id']
             if case == 'original-browser':
-                result = exercise_browser(OUT, app, config, PROBE, engine, proc.pid, server, snapshot, request,
-                                          ipc, prior_sessions, device_id)
+                if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'video-hud':
+                    result = exercise_video_hud(OUT, config, PROBE, engine, server, snapshot, request,
+                                                ipc, prior_sessions, device_id)
+                else:
+                    result = exercise_browser(OUT, app, config, PROBE, engine, proc.pid, server, snapshot, request,
+                                              ipc, prior_sessions, device_id)
                 summary.append({'case': case, **result})
                 continue
             if case == 'original-http-profile':

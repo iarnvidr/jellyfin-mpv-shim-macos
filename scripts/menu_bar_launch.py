@@ -43,8 +43,9 @@ def launch(app, config, env, log, probe, through_launchservices=False):
     command = ['/usr/bin/open', '-n', '-a', str(app)]
     # open --env is Apple's supported per-launch environment API. The app is
     # still launched by LaunchServices, not as a child of this Python process.
-    for key in ('JELLYFIN_PLAYER_MENU_DIAGNOSTICS', 'JELLYFIN_MENU_PROBE_OUTPUT'):
-        command.extend(['--env', key + '=' + env[key]])
+    for key in ('JELLYFIN_PLAYER_MENU_DIAGNOSTICS', 'JELLYFIN_MENU_PROBE_OUTPUT', 'JMS_TEST_OBSERVE'):
+        if key in env:
+            command.extend(['--env', key + '=' + env[key]])
     command.extend(['--args', '--config', str(config)])
     subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)
     deadline = time.monotonic() + 45

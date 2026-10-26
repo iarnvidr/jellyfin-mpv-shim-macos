@@ -11,7 +11,7 @@ on:
         default: 'yes'
       scenario:
         type: choice
-        options: ['default', 'launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus']
+        options: ['default', 'launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus', 'video-hud']
         default: 'default'
       runner:
         type: choice
@@ -131,7 +131,7 @@ jobs:
           xcrun swiftc tests/native/ReadMenuBar.swift -o /tmp/read-menu-bar -framework AppKit -framework Vision
           find outputs/menu-bar-proof -name '*.png' -print0 | xargs -0 /tmp/read-menu-bar > outputs/menu-bar-proof/menu-pixels-ocr.jsonl
       - name: Check screenshot regression for rebuilt engine comparison
-        if: always() && inputs.scenario != 'browser-focus' && (inputs.engine_variant != 'release' || inputs.app_build_run_id != '')
+        if: always() && inputs.scenario != 'browser-focus' && inputs.scenario != 'video-hud' && (inputs.engine_variant != 'release' || inputs.app_build_run_id != '')
         env:
           ENGINE_VARIANT: ${{ inputs.engine_variant }}
           APP_BUILD_RUN_ID: ${{ inputs.app_build_run_id }}
