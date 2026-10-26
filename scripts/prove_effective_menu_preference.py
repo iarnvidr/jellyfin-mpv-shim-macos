@@ -34,9 +34,10 @@ def dismiss():
     time.sleep(1)
 
 
-def capture(label, target):
-    run('open', '-a', target)
-    time.sleep(3)
+def capture(label, target=None):
+    if target is not None:
+        run('open', '-a', target)
+        time.sleep(3)
     records = {}
     for point, xy in [('away', (512, 384)), ('edge', (512, 0))]:
         run(PROBE, '--pointer', *xy, capture_output=True)
@@ -98,13 +99,15 @@ try:
     assert not code and original in ('Always', 'Never', 'In Full Screen Only', 'On Desktop Only'), 'Actual UI control unavailable; no effective-preference inference'
     result['comparisons'].append(set_mode('Never'))
     proc = cold_launch('cold-never')
-    capture('cold-never-browser', APP)
+    capture('cold-never-browser-passive')
+    capture('cold-never-browser-explicit-reopen', APP)
     result['comparisons'].append(set_mode('Always'))
     capture('existing-host-always-browser', APP)
     proc.terminate(); proc.wait(20); proc = None
     time.sleep(3)
     proc = cold_launch('cold-always')
-    capture('cold-always-browser', APP)
+    capture('cold-always-browser-passive')
+    capture('cold-always-browser-explicit-reopen', APP)
     result['comparisons'].append(set_mode('Never'))
     capture('existing-host-never-browser', APP)
     result['status'] = 'effective-control-and-comparison-complete'
