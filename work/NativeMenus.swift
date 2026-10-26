@@ -341,7 +341,7 @@ final class MenuStateDiagnostics {
         let pid = Int(ProcessInfo.processInfo.processIdentifier)
         identity = ["role": role, "pid": pid, "hostPID": role == "host" ? pid : (Int(env["JELLYFIN_PLAYER_HOST_PID"] ?? "") ?? 0),
                     "corePID": corePID, "sessionID": sessionID,
-                    "processLaunchTime": NSRunningApplication.current.launchDate?.timeIntervalSince1970 ?? 0,
+                    "processLaunchTime": Self.processBirthTime(Int32(pid)),
                     "roleVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"]
         directory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Logs/Jellyfin Player/menu-state", isDirectory: true)
@@ -371,6 +371,16 @@ final class MenuStateDiagnostics {
     }
     deinit { timer?.invalidate(); notifications.forEach { NotificationCenter.default.removeObserver($0) } }
 
+    // Kernel birth time also exists for the engine before LaunchServices registration.
+    // Only numeric identity fields are retained; names and other proc_bsdinfo fields are discarded.
+    private static func processBirthTime(_ pid: Int32) -> Double {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, Int32(PROC_PIDTBSDINFO), 0, &info, size) == size,
+              info.pbi_pid == UInt32(pid), info.pbi_start_tvsec > 0,
+              info.pbi_start_tvusec < 1_000_000 else { return 0 }
+        return Double(info.pbi_start_tvsec) + Double(info.pbi_start_tvusec) / 1_000_000
+    }
     private func rect(_ r: NSRect) -> [Double] { [r.origin.x, r.origin.y, r.width, r.height] }
     private func preference(_ key: String) -> [String: Any] {
         guard let value = CFPreferencesCopyValue(key as CFString, kCFPreferencesAnyApplication,
@@ -576,7 +586,7 @@ final class MenuStateDiagnostics {
                 let launch = id["processLaunchTime"] as? Double ?? 0
                 let matches = NSWorkspace.shared.runningApplications.filter { $0.bundleURL == expected }
                 guard let expected = expected, application?.bundleURL == expected,
-                      launch > 0, abs((application?.launchDate?.timeIntervalSince1970 ?? 0) - launch) < 0.01 else {
+                      launch > 0, abs(Self.processBirthTime(Int32(pid)) - launch) < 0.000_001 else {
                     finishFreeze(own: own, peer: ["status": "processIdentityMismatch"], cutoff: cutoff); return
                 }
                 guard matches.count == 1 else {
