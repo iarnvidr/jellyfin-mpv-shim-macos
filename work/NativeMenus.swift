@@ -192,14 +192,16 @@ final class NativeMenuSession {
     private var settings: NativeSettings?
     private var media: NativeMedia?
     private let isHost: Bool
+    private let diagnostics: MenuStateDiagnostics
     private let updates: ((String) -> [String: Any]?)?
     var isTracking: Bool { bar.isTracking }
 
-    init(lock: URL, corePID: Int, isHost: Bool = true,
+    init(lock: URL, corePID: Int, isHost: Bool = true, sessionID: String,
          updates: ((String) -> [String: Any]?)? = nil, quit: @escaping () -> Void) {
         self.lock = lock
         self.corePID = corePID
         self.isHost = isHost
+        self.diagnostics = MenuStateDiagnostics(role: isHost ? "host" : "engine", corePID: corePID, sessionID: sessionID)
         self.updates = updates
         if isHost {
             media = NativeMedia { [weak self] command in
@@ -227,8 +229,9 @@ final class NativeMenuSession {
             if let host = ProcessInfo.processInfo.environment["JELLYFIN_PLAYER_HOST_PID"].flatMap(Int32.init), host > 1 { kill(host, SIGURG) }
             return
         }
+        diagnostics.freeze()
         if settings == nil {
-            settings = NativeSettings(request: { [weak self] command, completion in
+            settings = NativeSettings(copyDiagnostics: { [weak self] in self?.diagnostics.copyFrozen() }, request: { [weak self] command, completion in
                 self?.request(command, completion: completion)
             })
         }
@@ -305,8 +308,175 @@ func installPlayerNativeMenus() {
     guard let path = env["JELLYFIN_PLAYER_MENU_LOCK"],
           let pid = env["JELLYFIN_PLAYER_CORE_PID"].flatMap(Int.init),
           let host = env["JELLYFIN_PLAYER_HOST_PID"].flatMap(Int32.init), host > 1 else { return }
-    playerMenuSession = NativeMenuSession(lock: URL(fileURLWithPath: path), corePID: pid, isHost: false) { kill(host, SIGTERM) }
+    playerMenuSession = NativeMenuSession(lock: URL(fileURLWithPath: path), corePID: pid, isHost: false, sessionID: env["JELLYFIN_PLAYER_SESSION_ID"] ?? "missing") { kill(host, SIGTERM) }
 }
 
 @_cdecl("JellyfinClosePlayerWindow")
 func closePlayerWindow() { playerMenuSession?.closePlayerWindow() }
+
+// Local, bounded observations only. Never changes AppKit presentation or activation.
+final class MenuStateDiagnostics {
+    private let role: String
+    private let identity: [String: Any]
+    private let directory: URL
+    private let io = DispatchQueue(label: "org.jellyfin.mpvshim.menu-state")
+    private var history: [[String: Any]] = []
+    private var initial: [String: Any]?
+    private var lastState = Data()
+    private var total = 0
+    private var timer: Timer?
+    private var observation: NSKeyValueObservation?
+    private var frozen = ""
+    private let limit = 16
+
+    init(role: String, corePID: Int, sessionID: String) {
+        self.role = role
+        let env = ProcessInfo.processInfo.environment
+        let pid = Int(ProcessInfo.processInfo.processIdentifier)
+        identity = ["role": role, "pid": pid, "hostPID": role == "host" ? pid : (Int(env["JELLYFIN_PLAYER_HOST_PID"] ?? "") ?? 0),
+                    "corePID": corePID, "sessionID": sessionID,
+                    "roleVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"]
+        directory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Logs/Jellyfin Player/menu-state", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        sample(reason: "initial")
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.sample(reason: "sample") }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+        observation = NSApp.observe(\.currentSystemPresentationOptions, options: [.new]) { [weak self] _, _ in
+            if Thread.isMainThread { self?.sample(reason: "effectivePresentation") }
+            else { DispatchQueue.main.async { self?.sample(reason: "effectivePresentation") } }
+        }
+    }
+    deinit { timer?.invalidate() }
+
+    private func rect(_ r: NSRect) -> [Double] { [r.origin.x, r.origin.y, r.width, r.height] }
+    private func preference(_ key: String) -> [String: Any] {
+        guard let value = CFPreferencesCopyValue(key as CFString, kCFPreferencesAnyApplication,
+                                                kCFPreferencesCurrentUser, kCFPreferencesAnyHost) else { return ["type": "missing"] }
+        if CFGetTypeID(value) == CFBooleanGetTypeID() { return ["type": "boolean", "value": (value as! NSNumber).boolValue] }
+        if CFGetTypeID(value) == CFNumberGetTypeID() { return ["type": "number", "value": (value as! NSNumber).doubleValue] }
+        return ["type": "unsupported"]
+    }
+    private func osBuild() -> String {
+        var size = 0
+        guard sysctlbyname("kern.osversion", nil, &size, nil, 0) == 0, size > 0, size < 64 else { return "unavailable" }
+        var bytes = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("kern.osversion", &bytes, &size, nil, 0) == 0 else { return "unavailable" }
+        let value = String(cString: bytes)
+        return value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == ".") } ? value : "unavailable"
+    }
+    private func state() -> [String: Any] {
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        let windows = NSApp.windows.prefix(8).map { w -> [String: Any] in
+            ["number": w.windowNumber, "frame": rect(w.frame), "styleMask": w.styleMask.rawValue,
+             "screenDisplayID": (w.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0,
+             "level": w.level.rawValue, "onActiveSpace": w.isOnActiveSpace, "visible": w.isVisible,
+             "key": w.isKeyWindow, "main": w.isMainWindow, "miniaturized": w.isMiniaturized, "zoomed": w.isZoomed]
+        }
+        let screens = NSScreen.screens.prefix(8).map { s -> [String: Any] in
+            let a = s.safeAreaInsets
+            return ["displayID": (s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0,
+                    "frame": rect(s.frame), "visibleFrame": rect(s.visibleFrame), "scale": s.backingScaleFactor,
+                    "safeArea": [a.top, a.left, a.bottom, a.right]]
+        }
+        let mouse = NSEvent.mouseLocation
+        return ["requestedPresentation": NSApp.presentationOptions.rawValue,
+                "effectivePresentation": NSApp.currentSystemPresentationOptions.rawValue,
+                "menuBarVisibleReported": NSMenu.menuBarVisible(), "mainMenuItemCount": NSApp.mainMenu?.numberOfItems ?? 0,
+                "activationPolicy": NSApp.activationPolicy().rawValue, "active": NSApp.isActive, "hidden": NSApp.isHidden,
+                "frontmostPID": NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0,
+                "osVersion": [os.majorVersion, os.minorVersion, os.patchVersion], "osBuild": osBuild(),
+                "engineProperties": ["status": "unavailable"],
+                "windows": windows, "windowsOmitted": max(0, NSApp.windows.count - 8),
+                "screens": screens, "screensOmitted": max(0, NSScreen.screens.count - 8),
+                "mouse": [mouse.x, mouse.y],
+                "preferences": ["_HIHideMenuBar": preference("_HIHideMenuBar"),
+                                "AppleMenuBarVisibleInFullscreen": preference("AppleMenuBarVisibleInFullscreen")]]
+    }
+    private func document(at time: Double) -> [String: Any] {
+        ["schema": 1, "identity": identity, "lastObservedMonotonic": time,
+         "history": history, "initial": initial ?? [:], "totalTransitions": total]
+    }
+    func sample(reason: String) {
+        precondition(Thread.isMainThread)
+        let now = ProcessInfo.processInfo.systemUptime
+        let current = state()
+        // Mouse location belongs in observations but must not turn pointer motion into a transition log.
+        var semantic = current
+        semantic.removeValue(forKey: "mouse")
+        let encoded = (try? JSONSerialization.data(withJSONObject: semantic, options: [.sortedKeys])) ?? Data()
+        if encoded != lastState {
+            let entry: [String: Any] = ["monotonic": now, "wallTime": Date().timeIntervalSince1970,
+                                        "reason": reason, "state": current]
+            if initial == nil { initial = entry }
+            history.append(entry)
+            if history.count > limit { history.removeFirst(history.count - limit) }
+            total += 1
+            lastState = encoded
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: document(at: now), options: [.sortedKeys]), data.count <= 262144 else { return }
+        let url = directory.appendingPathComponent(role + ".json")
+        io.async {
+            do {
+                try data.write(to: url, options: [.atomic])
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            } catch { /* No arbitrary error/path strings are collected. */ }
+        }
+    }
+
+    // Called in the host BEFORE constructing or showing Settings, including direct SIGURG routes.
+    func freeze() {
+        precondition(Thread.isMainThread)
+        sample(reason: "beforeSettings")
+        let cutoff = ProcessInfo.processInfo.systemUptime
+        var own = document(at: cutoff)
+        let peerRole = role == "host" ? "engine" : "host"
+        var peer: [String: Any] = ["status": "missing"]
+        let url = directory.appendingPathComponent(peerRole + ".json")
+        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 262144,
+           let data = try? Data(contentsOf: url),
+           let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let id = value["identity"] as? [String: Any] {
+            let same = ["sessionID", "hostPID", "corePID"].allSatisfy { String(describing: id[$0] ?? "") == String(describing: identity[$0] ?? "") }
+            if same, id["role"] as? String == peerRole, let pid = id["pid"] as? Int, pid > 1 {
+                let observed = value["lastObservedMonotonic"] as? Double ?? 0
+                peer = ["status": kill(Int32(pid), 0) != 0 ? "exited" : (cutoff - observed > 4 ? "stale" : "available"),
+                        "ageSeconds": max(0, cutoff - observed), "document": value]
+            } else { peer = ["status": "identityMismatch"] }
+        }
+        func bounded(_ source: [String: Any]) -> [String: Any] {
+            var result = source
+            let records = (source["history"] as? [[String: Any]] ?? []).filter { ($0["monotonic"] as? Double ?? .infinity) <= cutoff }
+            result["history"] = Array(records.suffix(8))
+            result["omittedTransitions"] = max(0, (source["totalTransitions"] as? Int ?? records.count) - min(8, records.count) - 1)
+            return result
+        }
+        own = bounded(own)
+        if let doc = peer["document"] as? [String: Any] { peer["document"] = bounded(doc) }
+        var report: [String: Any] = ["schema": 1, "capture": "beforeSettings", "nonAtomic": true,
+                                   "cutoffMonotonic": cutoff, "own": own, "peer": peer]
+        // Whole valid JSON only: reduce history further if unusual display/window counts exceed the clipboard bound.
+        for count in [8, 4, 1, 0] {
+            func reduce(_ doc: inout [String: Any]) {
+                let entries = doc["history"] as? [[String: Any]] ?? []
+                doc["history"] = Array(entries.suffix(count))
+                doc["clipboardOmittedTransitions"] = entries.count - min(count, entries.count)
+            }
+            var a = own; reduce(&a); report["own"] = a
+            var b = peer
+            if var doc = b["document"] as? [String: Any] { reduce(&doc); b["document"] = doc }
+            report["peer"] = b
+            if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]), data.count <= 65536 {
+                frozen = String(decoding: data, as: UTF8.self); return
+            }
+        }
+        frozen = "{\"schema\":1,\"status\":\"reportTooLarge\"}"
+    }
+    func copyFrozen() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(frozen, forType: .string)
+    }
+}
