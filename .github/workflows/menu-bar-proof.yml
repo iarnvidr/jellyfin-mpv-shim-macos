@@ -142,6 +142,16 @@ jobs:
           else
             python3 scripts/check_menu_bar_regression.py --cases "$CASE_FILTER"
           fi
+      - name: Verify actual browser gestures and passive menu pixels
+        if: always() && inputs.scenario == 'browser-focus'
+        env:
+          REQUIRE_BROWSER_CONTEXT: ${{ inputs.require_browser_context && '1' || '0' }}
+        run: |
+          if [ "$REQUIRE_BROWSER_CONTEXT" = 1 ]; then
+            python3 scripts/check_browser_menu_proof.py --require-context
+          else
+            python3 scripts/check_browser_menu_proof.py
+          fi
       - name: Preserve packaged core logs
         if: always()
         run: cp -R "$HOME/Library/Logs/Jellyfin MPV Shim" outputs/menu-bar-proof/core-logs || true
