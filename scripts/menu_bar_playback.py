@@ -49,6 +49,7 @@ class PlaybackServer:
                                       '--cachedir', str(out / 'server-cache'), '--nowebclient',
                                       '--ffmpeg', str(ffmpeg)], stdout=self.log, stderr=subprocess.STDOUT)
         wait_for('Jellyfin startup', lambda: self.api('GET', '/System/Info/Public'))
+        wait_for('startup API ready', lambda: self.api('GET', '/Startup/Configuration'))
         self.api('POST', '/Startup/Configuration', {'UICulture': 'en-US', 'MetadataCountryCode': 'US',
                                                    'PreferredMetadataLanguage': 'en'})
         self.api('GET', '/Startup/User')
@@ -77,11 +78,15 @@ class PlaybackServer:
                 raw = response.read()
                 return json.loads(raw) if raw else None
         except urllib.error.HTTPError as error:
-            raise RuntimeError(f'{method} {path}: {error.code}: {error.read().decode()}') from error
+            if error.code == 503:
+                raise OSError(f'{method} {path}: server starting (503)') from error
+            raise RuntimeError(f'{method} {path}: {error.code}: {error.read().decode()[:1000]}') from error
 
-    def start_playback(self, native, ipc, case):
-        session = wait_for('connected player session', lambda: next((s for s in self.api('GET', '/Sessions')
-            if s.get('SupportsRemoteControl') and s.get('Client') != 'Menu Bar Proof'), None))
+    def start_playback(self, native, ipc, case, excluded_sessions=()):
+        session = wait_for('connected player session', lambda: next(iter(sorted((s for s in self.api('GET', '/Sessions')
+            if s.get('SupportsRemoteControl') and s.get('IsActive') and s.get('Client') != 'Menu Bar Proof'
+            and s['Id'] not in excluded_sessions),
+            key=lambda s: s.get('LastActivityDate', ''), reverse=True)), None))
         self.api('POST', f'/Sessions/{session["Id"]}/Playing?' + urllib.parse.urlencode({
             'playCommand': 'PlayNow', 'itemIds': self.item['Id']}))
         playing = wait_for('server NowPlayingItem', lambda: next((s for s in self.api('GET', '/Sessions')
@@ -93,9 +98,15 @@ class PlaybackServer:
         second = self.position(ipc)
         if second <= first + 1:
             raise RuntimeError(f'mpv did not advance: {first} -> {second}')
-        record = {'session': playing, 'host': json.loads((native / 'now-playing-host.json').read_text()),
+        host = json.loads((native / 'now-playing-host.json').read_text())
+        if host['title'] != playing['NowPlayingItem']['Name']:
+            raise RuntimeError(f'Host title does not match server item: {host}')
+        video = self.mpv(ipc, ['get_property', 'video-params'])
+        if not video or video.get('w', 0) <= 0 or video.get('h', 0) <= 0:
+            raise RuntimeError(f'No decoded video parameters: {video}')
+        record = {'session': playing, 'host': host,
                   'mpvPositionBefore': first, 'mpvPositionAfter': second,
-                  'mpvVideoParams': self.mpv(ipc, ['get_property', 'video-params'])}
+                  'mpvVideoParams': video}
         (self.out / f'{case}-playback-evidence.json').write_text(json.dumps(record, indent=2))
         print(f'{case}: server session + host Now Playing + mpv position {first} -> {second}', flush=True)
 

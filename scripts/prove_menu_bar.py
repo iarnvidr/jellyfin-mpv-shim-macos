@@ -93,6 +93,7 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
                JELLYFIN_MENU_PROBE_OUTPUT=str(OUT / f'{case}-in-process.jsonl'))
     if case == 'instrumented-regular':
         env['JELLYFIN_MENU_PROBE_REGULAR'] = '1'
+    prior_sessions = {s['Id'] for s in server.api('GET', '/Sessions')}
     with (OUT / f'{case}-launcher.log').open('w') as log:
         proc = subprocess.Popen([str(app / 'Contents/MacOS/Jellyfin Player'), '--config', str(config),
                                  '--server', server.url, '--username', server.user, '--password', server.password],
@@ -117,7 +118,7 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             # 200 ms. Record that handoff instead of treating it as a failure.
             host_state = snapshot(case + '-host-active', proc.pid, require_frontmost=False)
             engine_state = snapshot(case + '-engine-active', engine)
-            server.start_playback(native, ipc, case)
+            server.start_playback(native, ipc, case, prior_sessions)
             snapshot(case + '-playing-windowed', engine)
             if case != 'original-release':
                 records = [json.loads(line) for line in (OUT / f'{case}-in-process.jsonl').read_text().splitlines()]
@@ -163,7 +164,7 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             snapshot(case + '-browser-after-fullscreen-stop', engine)
             # Recreate playback, then close its fullscreen window and reopen
             # through the real host activation path rather than setting flags.
-            server.start_playback(native, ipc, case + '-second')
+            server.start_playback(native, ipc, case + '-second', prior_sessions)
             if not server.mpv(ipc, ['get_property', 'fullscreen']):
                 request(config, 'fullscreen')
                 time.sleep(3)

@@ -38,6 +38,9 @@ jobs:
           find server -type f \( -name jellyfin -o -name ffmpeg -o -name ffprobe \)
       - name: Capture actual server playback and controlled activation policy comparison
         run: python3 scripts/prove_menu_bar.py
+      - name: Preserve packaged core logs
+        if: always()
+        run: cp -R "$HOME/Library/Logs/Jellyfin MPV Shim" outputs/menu-bar-proof/core-logs || true
       - name: Upload screenshots and runtime records
         if: always()
         uses: actions/upload-artifact@v4
@@ -48,5 +51,6 @@ jobs:
             outputs/menu-bar-proof/*.json
             outputs/menu-bar-proof/*.jsonl
             outputs/menu-bar-proof/*.log
+            outputs/menu-bar-proof/core-logs
             outputs/menu-bar-proof/*/native-menus/*.json
           if-no-files-found: error
