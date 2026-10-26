@@ -13,6 +13,7 @@ phases = ('after-real-login', 'authenticated-home', 'after-real-window-click',
           'card-right-click', 'card-control-click', 'item-details',
           'navigation-history-right-click', 'textbox-right-click', 'launchservices-reopen',
           'first-real-playback', 'video-right-click', 'video-control-click',
+          'video-right-still-click', 'video-control-still-click',
           'returned-to-browser', 'returned-browser-right-click')
 identity = json.loads((root / 'original-browser-published-identity.json').read_text())
 results = []

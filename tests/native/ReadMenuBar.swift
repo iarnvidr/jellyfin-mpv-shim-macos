@@ -33,7 +33,7 @@ for path in CommandLine.arguments.dropFirst() {
     var record: [String: Any] = ["path": path, "imageWidth": cg.width, "imageHeight": cg.height,
         "cropHeight": crop.height, "top22NonBlackPixels": nonBlack,
         "top22Pixels": min(22, bitmap.pixelsHigh) * bitmap.pixelsWide, "words": words]
-    if path.contains("textbox-right-click") || path.contains("video-right-click") || path.contains("video-control-click") {
+    if path.contains("textbox-right-click") || path.contains("video-right") || path.contains("video-control") {
         let full = VNRecognizeTextRequest()
         full.recognitionLevel = .accurate
         full.recognitionLanguages = ["en-US"]

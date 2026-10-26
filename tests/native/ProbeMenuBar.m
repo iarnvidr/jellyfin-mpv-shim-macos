@@ -266,8 +266,8 @@ int main(int argc, const char **argv) {
         } else if ((argc == 4 || argc == 5) && strcmp(argv[1], "--click") == 0) {
             CGPoint point = CGPointMake(atof(argv[2]), atof(argv[3]));
             NSString *mode = argc == 5 ? [NSString stringWithUTF8String:argv[4]] : @"left";
-            BOOL right = [mode isEqualToString:@"right"];
-            BOOL control = [mode isEqualToString:@"control"];
+            BOOL right = [mode hasPrefix:@"right"];
+            BOOL control = [mode hasPrefix:@"control"];
             if (control) {
                 CGEventRef modifier = CGEventCreateKeyboardEvent(NULL, 59, true);
                 CGEventSetType(modifier, kCGEventFlagsChanged); CGEventSetFlags(modifier, kCGEventFlagMaskControl);
@@ -275,6 +275,7 @@ int main(int argc, const char **argv) {
             }
             for (NSNumber *type in @[@(kCGEventMouseMoved), @(right ? kCGEventRightMouseDown : kCGEventLeftMouseDown),
                                      @(right ? kCGEventRightMouseUp : kCGEventLeftMouseUp)]) {
+                if ([mode hasSuffix:@"-still"] && type.unsignedIntValue == kCGEventMouseMoved) continue;
                 CGEventRef event = CGEventCreateMouseEvent(NULL, type.unsignedIntValue, point, right ? kCGMouseButtonRight : kCGMouseButtonLeft);
                 CGEventSetFlags(event, control ? kCGEventFlagMaskControl : 0);
                 CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);

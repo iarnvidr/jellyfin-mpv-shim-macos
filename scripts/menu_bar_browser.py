@@ -140,7 +140,13 @@ def exercise_browser(out, app, config, probe, engine, host, server, snapshot, re
                               'original-browser-first-playback', prior_sessions, device_id=device_id)
         capture('first-real-playback')
         video = {}
-        for gesture in ('right', 'control'):
+        for gesture in ('right', 'control', 'right-still', 'control-still'):
+            if gesture.endswith('-still'):
+                # No move event is posted after the HUD's hide interval.
+                command(probe, '--pointer', bounds['X'] + 400, bounds['Y'] + 300)
+                time.sleep(5)
+                capture('video-before-bare-' + gesture)
+            was_paused = server.mpv(ipc, ['get_property', 'pause'])
             command(probe, '--click', bounds['X'] + 400, bounds['Y'] + 300, gesture)
             time.sleep(2)
             capture('video-' + gesture + '-click')
@@ -153,8 +159,10 @@ def exercise_browser(out, app, config, probe, engine, host, server, snapshot, re
                       and n['bounds'][1] >= bounds['Y'])]
             model = server.mpv(ipc, ['get_property', 'user-data/jellyfin-accessibility'])
             video[gesture] = {'contextControls': menus,
-                              'browserContextEnabled': model.get('browserContextEnabled') if isinstance(model, dict) else None}
+                              'browserContextEnabled': model.get('browserContextEnabled') if isinstance(model, dict) else None,
+                              'pauseUnchanged': server.mpv(ipc, ['get_property', 'pause']) == was_paused}
             assert not menus, f'{gesture}: video context menu appeared'
+            assert video[gesture]['pauseUnchanged'], f'{gesture}: video gesture changed pause state'
         (out / 'original-browser-video-context-results.json').write_text(json.dumps(video, indent=2))
         state = request(config, 'state')
         stop = state['now_playing']['commands']['stop']
