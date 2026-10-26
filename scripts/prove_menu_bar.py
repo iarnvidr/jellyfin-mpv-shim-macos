@@ -9,6 +9,7 @@ import signal
 import socket
 import subprocess
 import time
+import traceback
 from menu_bar_playback import PlaybackServer
 from menu_bar_launch import launch
 from menu_bar_preferences import exercise_preferences
@@ -183,7 +184,7 @@ for case in cases:
             if not saved_user or not saved_user.get('credentials'):
                 run(PROBE, '--login', engine, server.url, server.user, server.password)
             time.sleep(3)
-            snapshot(case + '-after-real-login', engine, activate=False)
+            snapshot(case + '-after-real-login', engine, require_frontmost=not reused, activate=False)
             device_id = active_profile(config)['device_id']
             server.start_playback(native, ipc, case, prior_sessions, device_id=device_id)
             if server.mpv(ipc, ['get_property', 'fullscreen']):
@@ -274,6 +275,10 @@ for case in cases:
                             'hostFrontmost': host_state['frontmost'], 'engineFrontmost': engine_state['frontmost'],
                             'playingFrontmost': playing_state['frontmost'],
                             'directEngineRefocusSucceeded': refocus['frontmost'].get('pid') == engine})
+        except Exception as error:
+            summary.append({'case': case, 'error': str(error)})
+            traceback.print_exc()
+            snapshot(case + '-failure')
         finally:
             proc.terminate()
             try:
@@ -289,4 +294,6 @@ for case in cases:
 snapshot('desktop-after')
 server.close()
 (OUT / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+if any('error' in result for result in summary):
+    raise RuntimeError('Some diagnostic cases failed; see complete per-case summary and preserved captures')
 print(f'Captured {len(summary)} diagnostic cases; compare actual screenshot pixels and runtime records.', flush=True)
