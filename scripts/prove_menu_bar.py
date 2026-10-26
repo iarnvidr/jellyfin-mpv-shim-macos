@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare the exact release with instrumented accessory/regular runs on macOS."""
+"""Exercise published playback, launch paths, window state and menu ownership."""
 import hashlib
 import json
 import os
@@ -58,6 +58,14 @@ def request(config, command):
     return json.loads(response[4:])
 
 
+def active_profile(config):
+    path = config / 'users.json'
+    if not path.exists():
+        return None
+    users = json.loads(path.read_text())
+    return next((u for u in users['users'] if u['id'] == users['active']), None)
+
+
 run('xcrun', 'clang', '-fobjc-arc', '-DPROBE_STANDALONE', ROOT / 'tests/native/ProbeMenuBar.m',
     '-o', PROBE, '-framework', 'Cocoa', '-framework', 'ApplicationServices')
 snapshot('desktop-before')
@@ -85,12 +93,15 @@ cases = ['original-release'] if os.environ.get('JELLYFIN_MENU_PROOF_ORIGINAL_ONL
     'original-release', 'instrumented-accessory', 'instrumented-regular', 'stable-accessory']
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'launchservices':
     cases = ['original-raw', 'original-launchservices']
+if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'configurations':
+    cases = ['original-launchservices', 'original-reused-maximized', 'original-reused-titleless-maximized',
+             'original-reused-system-level', 'original-reused-start-fullscreen']
 for case in cases:
     app = OUT / case / 'Jellyfin Player.app'
     app.parent.mkdir()
     shutil.copytree(original, app, symlinks=True)
     original_case = case.startswith('original-')
-    launchservices = case == 'original-launchservices'
+    launchservices = case == 'original-launchservices' or case.startswith('original-reused-')
     if not original_case:
         # Core launches mpv with its own embedded library, not the outer
         # host's duplicate. Replace each copy and verify the probe ran below.
@@ -100,14 +111,30 @@ for case in cases:
             shutil.copy2(OUT / 'native-scroll.dylib', library)
         run('codesign', '--force', '--deep', '--sign', '-', app)
     config = OUT / case / 'profile'
-    config.mkdir()
+    reused = case.startswith('original-reused-')
+    if reused:
+        shutil.copytree(OUT / 'original-launchservices/profile', config,
+                        ignore=shutil.ignore_patterns('instance.lock', '*.sock'))
+    else:
+        config.mkdir()
     ipc = Path('/tmp') / f'menu-proof-{os.getpid()}.sock'
     CURRENT_IPC = ipc
-    (config / 'conf.json').write_text(json.dumps({
+    settings = json.loads((config / 'conf.json').read_text()) if reused else {
         'mpv_ext': True, 'mpv_ext_path': None, 'fullscreen': False,
         'browser_fullscreen': False, 'hide_title_bar': False,
-        'mpv_ext_ipc': str(ipc), 'client_uuid': case,
-    }))
+        'client_uuid': case,
+    }
+    settings['mpv_ext_ipc'] = str(ipc)
+    if 'maximized' in case:
+        settings['window_maximized'] = True
+    if 'titleless' in case:
+        settings['hide_title_bar'] = True
+    if 'start-fullscreen' in case:
+        settings.update(fullscreen=True, browser_fullscreen=True)
+    (config / 'conf.json').write_text(json.dumps(settings))
+    (OUT / f'{case}-requested-settings.json').write_text(json.dumps({
+        k: settings.get(k) for k in ('fullscreen', 'browser_fullscreen', 'hide_title_bar',
+                                    'window_maximized', 'window_width', 'window_height')}, indent=2))
     mpv_options = []
     if os.environ.get('JELLYFIN_MENU_PROOF_NATIVE_FS') == 'no':
         mpv_options.append('native-fs=no')
@@ -115,6 +142,8 @@ for case in cases:
         # Keep mpv's own VO initialization consistent with the hosted app's
         # policy, instead of default regular -> branding accessory transitions.
         mpv_options.append('macos-app-activation-policy=accessory')
+    if case == 'original-reused-system-level':
+        mpv_options.extend(['ontop=yes', 'ontop-level=system'])
     if mpv_options:
         (config / 'mpv.conf').write_text('\n'.join(mpv_options) + '\n')
     native = OUT / case / 'native-menus'
@@ -150,11 +179,24 @@ for case in cases:
             engine_state = snapshot(case + '-engine-active', engine, require_frontmost=not launchservices, activate=not launchservices)
             # The GUI intentionally uses its own login path; CLI credential
             # flags are only consumed by the upstream command-line UI.
-            run(PROBE, '--login', engine, server.url, server.user, server.password)
+            saved_user = active_profile(config)
+            if not saved_user or not saved_user.get('credentials'):
+                run(PROBE, '--login', engine, server.url, server.user, server.password)
             time.sleep(3)
             snapshot(case + '-after-real-login', engine, activate=False)
-            server.start_playback(native, ipc, case, prior_sessions)
+            device_id = active_profile(config)['device_id']
+            server.start_playback(native, ipc, case, prior_sessions, device_id=device_id)
+            if server.mpv(ipc, ['get_property', 'fullscreen']):
+                snapshot(case + '-startup-fullscreen-playing', engine, activate=False)
+                request(config, 'fullscreen')
+                time.sleep(4)
             playing_state = snapshot(case + '-playing-windowed', engine, activate=False)
+            if reused:
+                # This is a real second Finder/LaunchServices launch using the
+                # same saved profile while the first instance is playing.
+                run('/usr/bin/open', '-n', '-a', app, '--args', '--config', config)
+                time.sleep(3)
+                snapshot(case + '-second-launch-while-playing', engine, activate=False)
             if not original_case:
                 records = [json.loads(line) for line in (OUT / f'{case}-in-process.jsonl').read_text().splitlines()]
                 assert records, 'Instrumented library did not produce runtime records'
@@ -167,7 +209,7 @@ for case in cases:
                     assert playing_state['frontmost']['policy'] == 0, 'Regular policy did not survive media initialization'
             initial = request(config, 'state')
             (OUT / f'{case}-core-state.json').write_text(json.dumps(initial, indent=2) + '\n')
-            if launchservices:
+            if case == 'original-launchservices' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'launchservices':
                 exercise_preferences(OUT, app, ipc, config, request, snapshot, PROBE)
             # Reproduce the transition as well as a cold windowed launch.
             for phase in ['enter-fullscreen', 'leave-fullscreen']:
@@ -214,7 +256,7 @@ for case in cases:
             snapshot(case + '-browser-after-fullscreen-stop', engine, activate=False)
             # Recreate playback, then close its fullscreen window and reopen
             # through the real host activation path rather than setting flags.
-            server.start_playback(native, ipc, case + '-second', prior_sessions)
+            server.start_playback(native, ipc, case + '-second', prior_sessions, device_id=device_id)
             if not server.mpv(ipc, ['get_property', 'fullscreen']):
                 request(config, 'fullscreen')
                 time.sleep(3)
@@ -247,4 +289,4 @@ for case in cases:
 snapshot('desktop-after')
 server.close()
 (OUT / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
-print('All three cases captured; compare screenshots with in-process records.', flush=True)
+print(f'Captured {len(summary)} diagnostic cases; compare actual screenshot pixels and runtime records.', flush=True)

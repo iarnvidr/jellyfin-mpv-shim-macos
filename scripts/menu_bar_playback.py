@@ -92,10 +92,10 @@ class PlaybackServer:
                 raise OSError(f'{method} {path}: server starting (503)') from error
             raise RuntimeError(f'{method} {path}: {error.code}: {error.read().decode()[:1000]}') from error
 
-    def start_playback(self, native, ipc, case, excluded_sessions=()):
+    def start_playback(self, native, ipc, case, excluded_sessions=(), device_id=None):
         session = wait_for('connected player session', lambda: next(iter(sorted((s for s in self.api('GET', '/Sessions')
             if s.get('SupportsRemoteControl') and s.get('IsActive') and s.get('Client') != 'Menu Bar Proof'
-            and s['Id'] not in excluded_sessions),
+            and (s.get('DeviceId') == device_id if device_id else s['Id'] not in excluded_sessions)),
             key=lambda s: s.get('LastActivityDate', ''), reverse=True)), None))
         self.api('POST', f'/Sessions/{session["Id"]}/Playing?' + urllib.parse.urlencode({
             'playCommand': 'PlayNow', 'itemIds': self.item['Id']}))

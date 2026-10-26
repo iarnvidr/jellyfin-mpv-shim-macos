@@ -22,17 +22,20 @@ static NSDictionary *desktopState(void) {
     }
     NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID));
     NSMutableArray *bars = [NSMutableArray array];
+    NSMutableArray *playerWindows = [NSMutableArray array];
+    NSSet *playerPIDs = [NSSet setWithArray:[apps valueForKey:@"pid"]];
     for (NSDictionary *window in windows) {
         int level = [window[(id)kCGWindowLayer] intValue];
         if (level == CGWindowLevelForKey(kCGMainMenuWindowLevelKey) || level == CGWindowLevelForKey(kCGStatusWindowLevelKey)) {
             [bars addObject:window];
         }
+        if ([playerPIDs containsObject:window[(id)kCGWindowOwnerPID]]) [playerWindows addObject:window];
     }
     return @{@"time": @(NSDate.date.timeIntervalSince1970),
         @"frontmost": appIdentity(NSWorkspace.sharedWorkspace.frontmostApplication),
         @"displayBounds": @{@"x": @(display.origin.x), @"y": @(display.origin.y), @"width": @(display.size.width), @"height": @(display.size.height)},
         @"pointerPosition": @{@"x": @(cursor.x), @"y": @(cursor.y)},
-        @"jellyfinProcesses": apps, @"onScreenMenuWindows": bars ?: @[],
+        @"jellyfinProcesses": apps, @"onScreenMenuWindows": bars ?: @[], @"jellyfinWindows": playerWindows,
         @"accessibilityTrusted": @(AXIsProcessTrusted()),
         @"screenRecordingAllowed": @(CGPreflightScreenCaptureAccess()),
         @"globalAutoHideMenuBar": [NSUserDefaults.standardUserDefaults objectForKey:@"_HIHideMenuBar"] ?: NSNull.null};
