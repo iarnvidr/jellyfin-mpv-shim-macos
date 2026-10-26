@@ -107,6 +107,11 @@ try:
     (contents / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': 'org.jellyfin.mpvshim.update-test', 'CFBundleExecutable': 'AutoUpdate', 'CFBundlePackageType': 'APPL', 'CFBundleVersion': '1', 'LSUIElement': True}))
     cli = contents / 'MacOS/AutoUpdate'
     run('xcrun', 'clang', '-fobjc-arc', '-fblocks', ROOT / 'tests/native/AutoUpdate.m', '-o', cli, '-F', sdk, '-framework', 'AppKit', '-framework', 'Sparkle', '-Wl,-rpath,' + str(sdk))
+    # Supported Sparkle scheduling preference on this disposable CI account:
+    # prevent an unsolicited startup update window from repairing focus before
+    # the positive condition. The explicit driver still checks the public feed.
+    run('defaults', 'write', 'org.jellyfin.mpvshim.local', 'SUEnableAutomaticChecks', '-bool', 'false')
+    result['startupAutomaticChecksDisabled'] = True
     PROFILE.mkdir(parents=True)
     (PROFILE / 'conf.json').write_text(json.dumps({'fullscreen': False, 'browser_fullscreen': False, 'hide_title_bar': False, 'mpv_ext_ipc': str(IPC), 'video_volume': 37}))
     (PROFILE / 'mpv.conf').write_text('native-fs=no\n')
