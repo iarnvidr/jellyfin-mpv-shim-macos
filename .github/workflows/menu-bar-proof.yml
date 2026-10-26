@@ -1,0 +1,37 @@
+name: Menu bar runtime proof
+on:
+  push:
+    branches: [diagnostics/menu-bar-proof]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download exact published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir release
+          gh release download v0.2.9 --repo iarnvidr/jellyfin-mpv-shim-macos --pattern Jellyfin-Player-0.2.9-Apple-Silicon.zip --pattern SHA256SUMS --dir release
+          cd release
+          shasum -a 256 Jellyfin-Player-0.2.9-Apple-Silicon.zip
+          cat SHA256SUMS
+          ditto -x -k Jellyfin-Player-0.2.9-Apple-Silicon.zip .
+      - name: Capture release and controlled activation policy comparison
+        run: python3 scripts/prove_menu_bar.py
+      - name: Upload screenshots and runtime records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: menu-bar-runtime-proof
+          path: |
+            outputs/menu-bar-proof/*.png
+            outputs/menu-bar-proof/*.json
+            outputs/menu-bar-proof/*.jsonl
+            outputs/menu-bar-proof/*.log
+            outputs/menu-bar-proof/*/native-menus/*.json
+          if-no-files-found: error
