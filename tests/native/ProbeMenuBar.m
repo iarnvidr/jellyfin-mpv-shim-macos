@@ -91,12 +91,81 @@ static NSString *axText(AXUIElementRef element, CFStringRef attribute) {
     return [object isKindOfClass:NSString.class] ? object : @"";
 }
 
-static void axNodes(AXUIElementRef element, NSMutableArray *nodes, int depth) {
-    if (depth > 8 || nodes.count > 1000) return;
+static void axNodesLimited(AXUIElementRef element, NSMutableArray *nodes, int depth, int maxDepth) {
+    if (depth > maxDepth || nodes.count > 1000) return;
     [nodes addObject:(__bridge id)element];
     CFTypeRef children = NULL;
     if (AXUIElementCopyAttributeValue(element, kAXChildrenAttribute, &children) != kAXErrorSuccess) return;
-    for (id child in CFBridgingRelease(children)) axNodes((__bridge AXUIElementRef)child, nodes, depth + 1);
+    for (id child in CFBridgingRelease(children)) axNodesLimited((__bridge AXUIElementRef)child, nodes, depth + 1, maxDepth);
+}
+
+static void axNodes(AXUIElementRef element, NSMutableArray *nodes, int depth) {
+    axNodesLimited(element, nodes, depth, 8);
+}
+
+static int menuAutoHide(NSString *choice) {
+    NSString *directory = @"/System/Library/ExtensionKit/Extensions";
+    NSMutableArray *bundles = [NSMutableArray array];
+    for (NSString *entry in [NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:nil]) {
+        if ([entry.lowercaseString containsString:@"menubar"] || [entry.lowercaseString containsString:@"menu-bar"]) {
+            NSBundle *bundle = [NSBundle bundleWithPath:[directory stringByAppendingPathComponent:entry]];
+            if (bundle.bundleIdentifier) [bundles addObject:bundle.bundleIdentifier];
+        }
+    }
+    if (!bundles.count) {
+        emitRecord(@{@"menuAutoHide": @"unavailable", @"reason": @"No Menu Bar settings extension in system manifest"}, nil);
+        return 1;
+    }
+    NSURL *url = [NSURL URLWithString:[@"x-apple.systempreferences:" stringByAppendingString:bundles.firstObject]];
+    [NSWorkspace.sharedWorkspace openURL:url];
+    NSMutableArray *nodes = nil;
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:25];
+    NSArray *choices = @[@"Always", @"Never", @"In Full Screen Only", @"On Desktop Only"];
+    while (deadline.timeIntervalSinceNow > 0) {
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
+        NSRunningApplication *app = [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.apple.systempreferences"].firstObject;
+        if (!app) continue;
+        AXUIElementRef root = AXUIElementCreateApplication(app.processIdentifier);
+        nodes = [NSMutableArray array];
+        axNodesLimited(root, nodes, 0, 40);
+        CFRelease(root);
+        for (id node in nodes) {
+            AXUIElementRef element = (__bridge AXUIElementRef)node;
+            if (![axText(element, kAXRoleAttribute) isEqualToString:@"AXPopUpButton"]) continue;
+            NSString *value = axText(element, kAXValueAttribute);
+            NSString *label = [NSString stringWithFormat:@"%@ %@", axText(element, kAXTitleAttribute), axText(element, kAXDescriptionAttribute)];
+            if (![choices containsObject:value] && [label rangeOfString:@"Automatically hide" options:NSCaseInsensitiveSearch].location == NSNotFound) continue;
+            if ([choice isEqualToString:@"read"]) {
+                emitRecord(@{@"menuAutoHide": @"read", @"current": value, @"label": label, @"extension": bundles.firstObject}, nil);
+                return 0;
+            }
+            AXError pressed = AXUIElementPerformAction(element, kAXPressAction);
+            if (pressed != kAXErrorSuccess) break;
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
+            AXUIElementRef menuRoot = AXUIElementCreateApplication(app.processIdentifier);
+            NSMutableArray *menuNodes = [NSMutableArray array];
+            axNodesLimited(menuRoot, menuNodes, 0, 40);
+            CFRelease(menuRoot);
+            for (id menuNode in menuNodes) {
+                AXUIElementRef item = (__bridge AXUIElementRef)menuNode;
+                NSString *role = axText(item, kAXRoleAttribute);
+                if (![role isEqualToString:@"AXMenuItem"] && ![role isEqualToString:@"AXButton"]) continue;
+                if (![axText(item, kAXTitleAttribute) isEqualToString:choice] && ![axText(item, kAXDescriptionAttribute) isEqualToString:choice]) continue;
+                AXError selected = AXUIElementPerformAction(item, kAXPressAction);
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:1]];
+                emitRecord(@{@"menuAutoHide": @"selection-attempt", @"previous": value, @"requested": choice, @"axResult": @(selected)}, nil);
+                return selected == kAXErrorSuccess ? 0 : 1;
+            }
+        }
+    }
+    NSMutableArray *dump = [NSMutableArray array];
+    for (id node in nodes) {
+        AXUIElementRef element = (__bridge AXUIElementRef)node;
+        [dump addObject:@{@"role": axText(element, kAXRoleAttribute), @"title": axText(element, kAXTitleAttribute),
+            @"description": axText(element, kAXDescriptionAttribute), @"value": axText(element, kAXValueAttribute)}];
+    }
+    emitRecord(@{@"menuAutoHide": @"unavailable", @"extensionCandidates": bundles, @"controls": dump}, nil);
+    return 1;
 }
 
 static void dismissLocalNetworkPrompt(void) {
@@ -173,7 +242,9 @@ static int loginPlayer(pid_t pid, NSArray<NSString *> *values) {
 
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        if (argc == 4 && strcmp(argv[1], "--pointer") == 0) {
+        if (argc == 3 && strcmp(argv[1], "--menu-auto-hide") == 0) {
+            return menuAutoHide([NSString stringWithUTF8String:argv[2]]);
+        } else if (argc == 4 && strcmp(argv[1], "--pointer") == 0) {
             CGPoint point = CGPointMake(atof(argv[2]), atof(argv[3]));
             CGWarpMouseCursorPosition(point);
             CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, point, kCGMouseButtonLeft);

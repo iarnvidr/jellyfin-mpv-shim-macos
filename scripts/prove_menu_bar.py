@@ -14,6 +14,7 @@ from menu_bar_playback import PlaybackServer
 from menu_bar_launch import launch
 from menu_bar_preferences import exercise_preferences
 from menu_bar_mechanisms import exercise_mechanism
+from menu_bar_ui_preferences import exercise_ui_preferences
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'outputs/menu-bar-proof'
@@ -101,12 +102,14 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'configurations':
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'mechanisms':
     cases = ['original-switch-legacy-to-native', 'original-switch-native-to-legacy',
              'original-windowed-vo-teardown', 'original-fullscreen-vo-teardown']
+if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'preferences-ui':
+    cases = ['original-launchservices']
 for case in cases:
     app = OUT / case / 'Jellyfin Player.app'
     app.parent.mkdir()
     shutil.copytree(original, app, symlinks=True)
     original_case = case.startswith('original-')
-    launchservices = original_case and case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms')
+    launchservices = original_case and case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui')
     if not original_case:
         # Core launches mpv with its own embedded library, not the outer
         # host's duplicate. Replace each copy and verify the probe ran below.
@@ -220,6 +223,8 @@ for case in cases:
             (OUT / f'{case}-core-state.json').write_text(json.dumps(initial, indent=2) + '\n')
             if case == 'original-launchservices' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'launchservices':
                 exercise_preferences(OUT, app, ipc, config, request, snapshot, PROBE)
+            if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'preferences-ui':
+                exercise_ui_preferences(OUT, app, snapshot, PROBE)
             # Reproduce the transition as well as a cold windowed launch.
             for phase in ['enter-fullscreen', 'leave-fullscreen']:
                 result = request(config, 'fullscreen')

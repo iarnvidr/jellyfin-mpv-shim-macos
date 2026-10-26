@@ -11,7 +11,7 @@ on:
         default: 'yes'
       scenario:
         type: choice
-        options: ['default', 'launchservices', 'configurations', 'mechanisms']
+        options: ['default', 'launchservices', 'configurations', 'mechanisms', 'preferences-ui']
         default: 'default'
       runner:
         type: choice
