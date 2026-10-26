@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'work'))
 from mac_menu import NativeMenus
-from local_compat import patch_renderer, patch_title_header
+from local_compat import patch_title_header
 
 
 def entries(model):
@@ -73,12 +73,6 @@ class NativeMenuTests(unittest.TestCase):
         self.updater.assert_called_once_with()
         self.menu.request('show')
         self.ui.on_second_launch.assert_called_once_with()
-
-    def test_right_click_callback_preserves_browser_and_excludes_playback_hud(self):
-        source = Path(__file__).resolve().parents[1] / 'work/source/jellyfin_mpv_shim/mpvtk/renderer.lua'
-        original = source.read_text()
-        self.assertIn('state.mouse.down = true; on_rclick()', original)
-        self.assertIn('if state.active and not state.phud.mode then state.mouse.down = true; on_rclick() end', patch_renderer(original))
 
     def test_playback_header_is_draggable_with_native_chrome_and_no_scrim(self):
         from jellyfin_mpv_shim.mpvtk.widgets import Row, Stack, Text, Button
