@@ -247,8 +247,8 @@ for case in cases:
                 snapshot(case + '-startup-fullscreen-playing', engine, activate=False)
                 request(config, 'fullscreen')
                 time.sleep(4)
-            if case.startswith('observed-'):
-                # Establish the observation-only engine's foreground precondition
+            if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'mechanisms':
+                # Establish the playback engine's foreground precondition
                 # before the experiment; subsequent transition captures are passive.
                 snapshot(case + '-explicit-precondition-activation', engine)
             playing_state = snapshot(case + '-playing-windowed', engine, activate=False)
