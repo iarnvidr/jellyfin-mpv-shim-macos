@@ -82,6 +82,7 @@ def exercise_diagnostics(case, out, app, engine, host, snapshot, request, config
     assert documents[0]['identity']['corePID'] == documents[1]['identity']['corePID']
     control = subprocess.Popen([str(control_binary), str(commands), str(control_output)])
     stopped = False
+    original_peer = None
     try:
         wait('control launched', lambda: control_record('launched'))
         wait('control actually foreground', lambda: json.loads(subprocess.check_output([str(probe)]))['frontmost']['pid'] == control.pid)
@@ -142,7 +143,8 @@ def exercise_diagnostics(case, out, app, engine, host, snapshot, request, config
         os.kill(engine, signal.SIGSTOP)
         stopped = True
         time.sleep(0.2)
-        malformed = copy.deepcopy(role('engine'))
+        original_peer = role('engine')
+        malformed = copy.deepcopy(original_peer)
         private = 'DIAGNOSTIC_PRIVATE_TITLE_https://secret.invalid/token=DO_NOT_COPY'
         malformed['privateSentinel'] = private
         peer_path = storage / 'engine.json'
@@ -152,6 +154,17 @@ def exercise_diagnostics(case, out, app, engine, host, snapshot, request, config
         _, rejected = copy_report('rejected-private-peer', '--exclude-sentinel', private)
         assert rejected['peer']['status'] == 'unreadableOrInvalid'
         assert 'document' not in rejected['peer']
+        press('close')
+        malformed_pid = copy.deepcopy(original_peer)
+        malformed_pid['identity']['pid'] = 1 << 40
+        peer_path.write_text(json.dumps(malformed_pid))
+        os.chmod(peer_path, 0o600)
+        os.kill(host, signal.SIGURG)
+        _, rejected_pid = copy_report('rejected-overflow-pid')
+        assert rejected_pid['peer']['status'] == 'unreadableOrInvalid'
+        assert 'document' not in rejected_pid['peer']
+        peer_path.write_text(json.dumps(original_peer))
+        os.chmod(peer_path, 0o600)
         os.kill(engine, signal.SIGCONT)
         stopped = False
         press('close')
@@ -177,6 +190,10 @@ def exercise_diagnostics(case, out, app, engine, host, snapshot, request, config
         return result
     finally:
         if stopped:
+            if original_peer is not None:
+                peer_path = storage / 'engine.json'
+                peer_path.write_text(json.dumps(original_peer))
+                os.chmod(peer_path, 0o600)
             os.kill(engine, signal.SIGCONT)
         if control.poll() is None:
             commands.write_text('quit')
