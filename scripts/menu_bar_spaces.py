@@ -61,10 +61,16 @@ def exercise_spaces(case, out, app, native, ipc, engine, host, server,
         result['limitation'] = 'A foreground visible named Finder window was not established before fullscreen'
         preserve()
         return result
-    action('establish-engine-foreground', lambda: shell(probe, engine))
+    # The accessory renderer is activated through its regular Dock host, as
+    # a user would reopen the app after switching to Finder.
+    action('establish-app-foreground-through-host-reopen', lambda: shell('/usr/bin/open', '-a', app))
+    time.sleep(3)
     baseline = capture('windowed-before-space-transition')
-    if baseline['frontmost'].get('pid') != engine:
-        result['limitation'] = 'The engine did not become foreground before the Space experiment'
+    visible_engine = any(window.get('kCGWindowOwnerPID') == engine
+                         and window.get('kCGWindowAlpha', 0) > 0
+                         for window in baseline.get('jellyfinWindows', []))
+    if baseline['frontmost'].get('pid') not in (host, engine) or not visible_engine:
+        result['limitation'] = 'Normal host reopen did not establish a foreground app with visible engine window'
         preserve()
         return result
     action('native-fs-yes', lambda: PlaybackServer.mpv(ipc, ['set_property', 'native-fs', True]))
