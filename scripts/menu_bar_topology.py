@@ -49,7 +49,7 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
         return state
 
     def move(x, y):
-        command(probe, '--move-window', engine, x, y)
+        command(probe, '--drag-window', engine, x, y)
         time.sleep(2)
         # Deliberate pointer-away action, recorded separately from capture.
         command(probe, '--pointer', x + 300, y + 220)
@@ -90,7 +90,12 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
         capture('playing-on-hidpi')
         assert request(config, 'fullscreen').get('ok') is True
         time.sleep(5)
-        capture('normal-fullscreen-on-hidpi')
+        full = capture('normal-fullscreen-on-hidpi')
+        assert full['mpvState']['fullscreen'] is True
+        assert any(w.get('kCGWindowOwnerPID') == engine and
+                   w.get('kCGWindowBounds', {}).get('X', 0) >= numbers[0] and
+                   w.get('kCGWindowBounds', {}).get('Width', 0) >= numbers[2] - 2
+                   for w in full['jellyfinWindows']), full['jellyfinWindows']
         assert request(config, 'fullscreen').get('ok') is True
         time.sleep(4)
         capture('normal-windowed-on-hidpi')
@@ -101,6 +106,10 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
         time.sleep(5)
         before = capture('fullscreen-before-removal')
         assert before['mpvState']['fullscreen'] is True
+        assert any(w.get('kCGWindowOwnerPID') == engine and
+                   w.get('kCGWindowBounds', {}).get('X', 0) >= numbers[0] and
+                   w.get('kCGWindowBounds', {}).get('Width', 0) >= numbers[2] - 2
+                   for w in before['jellyfinWindows']), before['jellyfinWindows']
         (display_out / 'remove-request').touch()
         wait_for('actual virtual display removal', lambda: (display_out / 'removed.json').exists(), seconds=15)
         time.sleep(2)

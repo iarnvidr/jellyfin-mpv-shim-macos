@@ -246,7 +246,36 @@ static int loginPlayer(pid_t pid, NSArray<NSString *> *values) {
 
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        if (argc == 5 && strcmp(argv[1], "--move-window") == 0) {
+        if (argc == 5 && strcmp(argv[1], "--drag-window") == 0) {
+            pid_t pid = atoi(argv[2]);
+            NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID));
+            NSDictionary *window = nil;
+            for (NSDictionary *candidate in windows) {
+                if ([candidate[(id)kCGWindowOwnerPID] intValue] == pid &&
+                    [candidate[(id)kCGWindowLayer] intValue] == 0) { window = candidate; break; }
+            }
+            if (!window) return 1;
+            CGRect frame;
+            if (!CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)window[(id)kCGWindowBounds], &frame)) return 1;
+            CGPoint start = CGPointMake(frame.origin.x + 200, frame.origin.y + 12);
+            CGPoint end = CGPointMake(atof(argv[3]) + 200, atof(argv[4]) + 12);
+            CGEventRef reveal = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, start, kCGMouseButtonLeft);
+            CGEventSetFlags(reveal, 0); CGEventPost(kCGHIDEventTap, reveal); CFRelease(reveal);
+            usleep(500000);
+            for (int step = 0; step <= 31; step++) {
+                double fraction = step == 0 ? 0 : MIN(step, 30) / 30.0;
+                CGPoint point = CGPointMake(start.x + fraction * (end.x - start.x), start.y + fraction * (end.y - start.y));
+                CGEventType type = step == 0 ? kCGEventLeftMouseDown : step == 31 ? kCGEventLeftMouseUp : kCGEventLeftMouseDragged;
+                CGEventRef event = CGEventCreateMouseEvent(NULL, type, point, kCGMouseButtonLeft);
+                CGEventSetIntegerValueField(event, kCGMouseEventButtonNumber, kCGMouseButtonLeft);
+                CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
+                CGEventSetFlags(event, 0); CGEventPost(kCGHIDEventTap, event); CFRelease(event);
+                usleep(30000);
+            }
+            emitRecord(@{@"windowDrag": @YES, @"pid": @(pid), @"from": @[@(start.x), @(start.y)],
+                         @"to": @[@(end.x), @(end.y)], @"originalBounds": window[(id)kCGWindowBounds]}, nil);
+            return 0;
+        } else if (argc == 5 && strcmp(argv[1], "--move-window") == 0) {
             AXUIElementRef app = AXUIElementCreateApplication(atoi(argv[2]));
             CFTypeRef windows = NULL;
             AXError result = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute, &windows);
