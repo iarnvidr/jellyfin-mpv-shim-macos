@@ -27,6 +27,9 @@ on:
         type: choice
         options: ['release', 'rebuilt-original', 'rebuilt-patched']
         default: 'release'
+      app_build_run_id:
+        type: string
+        default: ''
 permissions:
   contents: read
 jobs:
@@ -40,6 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download exact published release
+        if: inputs.app_build_run_id == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -52,6 +56,21 @@ jobs:
           test -s zip-checksum
           shasum -a 256 --check zip-checksum
           ditto -x -k Jellyfin-Player-0.2.9-Apple-Silicon.zip .
+      - name: Download exact freshly packaged candidate
+        if: inputs.app_build_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_BUILD_RUN_ID: ${{ inputs.app_build_run_id }}
+        run: |
+          mkdir release
+          gh run download "$APP_BUILD_RUN_ID" --repo iarnvidr/jellyfin-mpv-shim-macos --pattern "Jellyfin-Player-macOS-Apple-Silicon-$APP_BUILD_RUN_ID-*" --dir candidate-build
+          find candidate-build -type f -maxdepth 2
+          cp candidate-build/*/*-Apple-Silicon.zip candidate-build/*/SHA256SUMS release/
+          cd release
+          awk '$2 ~ /-Apple-Silicon.zip$/' SHA256SUMS > zip-checksum
+          test -s zip-checksum
+          shasum -a 256 --check zip-checksum
+          ditto -x -k ./*-Apple-Silicon.zip .
       - name: Download complete rebuilt engine comparison bundle
         if: inputs.engine_variant != 'release' && inputs.engine_build_run_id != ''
         env:
@@ -87,11 +106,12 @@ jobs:
           xcrun swiftc tests/native/ReadMenuBar.swift -o /tmp/read-menu-bar -framework AppKit -framework Vision
           find outputs/menu-bar-proof -name '*.png' -print0 | xargs -0 /tmp/read-menu-bar > outputs/menu-bar-proof/menu-pixels-ocr.jsonl
       - name: Check screenshot regression for rebuilt engine comparison
-        if: always() && inputs.engine_variant != 'release'
+        if: always() && (inputs.engine_variant != 'release' || inputs.app_build_run_id != '')
         env:
           ENGINE_VARIANT: ${{ inputs.engine_variant }}
+          APP_BUILD_RUN_ID: ${{ inputs.app_build_run_id }}
         run: |
-          if [ "$ENGINE_VARIANT" = rebuilt-patched ]; then
+          if [ "$ENGINE_VARIANT" = rebuilt-patched ] || [ -n "$APP_BUILD_RUN_ID" ]; then
             python3 scripts/check_menu_bar_regression.py --require-visible
           else
             python3 scripts/check_menu_bar_regression.py
