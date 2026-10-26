@@ -1,6 +1,11 @@
 name: Display topology capability proof
 on:
   workflow_dispatch:
+  push:
+    branches: [diagnostics/menu-bar-proof]
+    paths:
+      - .github/workflows/display-capability.yml
+      - tests/native/ProbeVirtualDisplay.m
 permissions:
   contents: read
 jobs:
