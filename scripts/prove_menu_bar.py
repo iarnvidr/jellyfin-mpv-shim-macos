@@ -244,7 +244,8 @@ for case in cases:
             snapshot(case + '-after-real-login', engine, require_frontmost=False, activate=False)
             device_id = active_profile(config)['device_id']
             if case == 'original-browser':
-                result = exercise_browser(OUT, app, config, PROBE, engine, proc.pid, server, snapshot, request)
+                result = exercise_browser(OUT, app, config, PROBE, engine, proc.pid, server, snapshot, request,
+                                          ipc, prior_sessions, device_id)
                 summary.append({'case': case, **result})
                 continue
             if case == 'original-http-profile':

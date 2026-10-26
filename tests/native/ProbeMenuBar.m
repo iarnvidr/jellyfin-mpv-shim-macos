@@ -267,23 +267,42 @@ int main(int argc, const char **argv) {
             CGPoint point = CGPointMake(atof(argv[2]), atof(argv[3]));
             NSString *mode = argc == 5 ? [NSString stringWithUTF8String:argv[4]] : @"left";
             BOOL right = [mode isEqualToString:@"right"];
+            BOOL control = [mode isEqualToString:@"control"];
+            if (control) {
+                CGEventRef modifier = CGEventCreateKeyboardEvent(NULL, 59, true);
+                CGEventSetType(modifier, kCGEventFlagsChanged); CGEventSetFlags(modifier, kCGEventFlagMaskControl);
+                CGEventPost(kCGHIDEventTap, modifier); CFRelease(modifier);
+            }
             for (NSNumber *type in @[@(kCGEventMouseMoved), @(right ? kCGEventRightMouseDown : kCGEventLeftMouseDown),
                                      @(right ? kCGEventRightMouseUp : kCGEventLeftMouseUp)]) {
                 CGEventRef event = CGEventCreateMouseEvent(NULL, type.unsignedIntValue, point, right ? kCGMouseButtonRight : kCGMouseButtonLeft);
-                if ([mode isEqualToString:@"control"]) CGEventSetFlags(event, kCGEventFlagMaskControl);
+                CGEventSetFlags(event, control ? kCGEventFlagMaskControl : 0);
+                CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
                 CGEventPost(kCGHIDEventTap, event); CFRelease(event);
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+            }
+            if (control) {
+                CGEventRef modifier = CGEventCreateKeyboardEvent(NULL, 59, false);
+                CGEventSetType(modifier, kCGEventFlagsChanged); CGEventSetFlags(modifier, 0);
+                CGEventPost(kCGHIDEventTap, modifier); CFRelease(modifier);
             }
             emitRecord(@{@"clickX": @(point.x), @"clickY": @(point.y), @"mode": mode}, nil);
         } else if (argc == 3 && strcmp(argv[1], "--key") == 0) {
             NSString *key = [NSString stringWithUTF8String:argv[2]];
             CGKeyCode code = [key isEqualToString:@"cmd-tab"] ? 48 : 4;
             if (![@[@"cmd-tab", @"cmd-h"] containsObject:key]) return 2;
+            CGEventRef modifier = CGEventCreateKeyboardEvent(NULL, 55, true);
+            CGEventSetType(modifier, kCGEventFlagsChanged);
+            CGEventSetFlags(modifier, kCGEventFlagMaskCommand);
+            CGEventPost(kCGHIDEventTap, modifier); CFRelease(modifier);
             for (NSNumber *down in @[@YES, @NO]) {
                 CGEventRef event = CGEventCreateKeyboardEvent(NULL, code, down.boolValue);
                 CGEventSetFlags(event, kCGEventFlagMaskCommand); CGEventPost(kCGHIDEventTap, event); CFRelease(event);
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
             }
+            modifier = CGEventCreateKeyboardEvent(NULL, 55, false);
+            CGEventSetType(modifier, kCGEventFlagsChanged); CGEventSetFlags(modifier, 0);
+            CGEventPost(kCGHIDEventTap, modifier); CFRelease(modifier);
             emitRecord(@{@"key": key}, nil);
         } else if (argc == 3 && strcmp(argv[1], "--menu-auto-hide") == 0) {
             return menuAutoHide([NSString stringWithUTF8String:argv[2]]);

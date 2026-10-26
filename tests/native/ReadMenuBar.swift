@@ -30,9 +30,16 @@ for path in CommandLine.arguments.dropFirst() {
             }
         }
     }
-    let record: [String: Any] = ["path": path, "imageWidth": cg.width, "imageHeight": cg.height,
+    var record: [String: Any] = ["path": path, "imageWidth": cg.width, "imageHeight": cg.height,
         "cropHeight": crop.height, "top22NonBlackPixels": nonBlack,
         "top22Pixels": min(22, bitmap.pixelsHigh) * bitmap.pixelsWide, "words": words]
+    if path.contains("textbox-right-click") || path.contains("video-right-click") || path.contains("video-control-click") {
+        let full = VNRecognizeTextRequest()
+        full.recognitionLevel = .accurate
+        full.recognitionLanguages = ["en-US"]
+        try VNImageRequestHandler(cgImage: cg, options: [:]).perform([full])
+        record["wholeImageWords"] = (full.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+    }
     let json = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
     print(String(decoding: json, as: UTF8.self))
 }
