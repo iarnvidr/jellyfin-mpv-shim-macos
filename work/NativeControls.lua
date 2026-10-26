@@ -1,6 +1,7 @@
 -- AppKit editing and accessibility for the custom-drawn browser. Kept in the
 -- renderer's scope so actions use its current focus, clipping and input paths.
-;(function()
+do
+(function()
     local old_state, old_changed = tb_state, tb_changed
     local restoring = false
     local function snapshot(tb)
@@ -175,3 +176,4 @@
         end
     end)
 end)()
+end

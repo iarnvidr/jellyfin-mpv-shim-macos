@@ -1,0 +1,22 @@
+HOMEBREW_VERSION: 6.0.22
+ORIGIN: https://github.com/Homebrew/brew
+HEAD: 08e85c4e42f5d8f1ea17c36cb59cf61c2ccb26c3
+Last commit: 7 weeks ago
+Branch: stable
+Core tap HEAD: a7496e08a4f47d93bf30ba518e3dfae9f1dbab3b
+Core tap last commit: 7 weeks ago
+Core cask tap HEAD: 3b6641505241052f20339a9049b317324a08b9b7
+Core cask tap last commit: 7 weeks ago
+HOMEBREW_PREFIX: /opt/homebrew
+HOMEBREW_CASK_OPTS: ["--no-quarantine"]
+HOMEBREW_NO_AUTO_UPDATE: set
+HOMEBREW_NO_INSTALL_CLEANUP: set
+Homebrew Ruby: 4.0.6 => /opt/homebrew/Library/Homebrew/vendor/portable-ruby/4.0.6/bin/ruby
+CPU: 3-core 64-bit dunno
+Clang: 17.0.0 build 1700
+Git: 2.55.0 => /opt/homebrew/bin/git
+Curl: 8.7.1 => /usr/bin/curl
+macOS: 15.7.9-arm64
+CLT: 16.4.0.0.1.1747106510
+Xcode: 16.4 => /Applications/Xcode_16.4.app/Contents/Developer
+Rosetta 2: false

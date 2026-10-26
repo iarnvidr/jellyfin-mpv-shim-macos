@@ -11,7 +11,7 @@ def apple(tool):
  p=Path('/usr/bin')/tool
  return str(p) if p.exists() else subprocess.check_output(['/usr/bin/xcrun','--find',tool],text=True).strip()
 if sys.platform!='darwin' or platform.machine()!='arm64': raise SystemExit('Build on Apple Silicon macOS.')
-# Download immutable official mpv-player archive, verify exact bytes, then extract.
+# Verify the pinned complete mpv archive bytes, then extract.
 stage('acquire mpv')
 command(sys.executable,str(WORK/'acquire_mpv.py'))
 mpvapp=WORK/'mpv-release/mpv.app'
@@ -54,7 +54,7 @@ command(swiftc,str(WORK/'AppHost.swift'),str(WORK/'NativeMenus.swift'),str(WORK/
 shutil.copy2(WORK/'native-scroll.dylib',app/'Contents/Frameworks/native-scroll.dylib')
 shutil.copy2(WORK/'source/jellyfin.icns',app/'Contents/Resources/jellyfin.icns')
 support=app/'Contents/Resources/mac_support'; support.mkdir(parents=True,exist_ok=True)
-# The official artifact is a complete app, not a standalone executable: preserve its
+# The pinned artifact is a complete app, not a standalone executable: preserve its
 # transitive dylibs, MoltenVK, Vulkan ICD resources and config next to the binary.
 mpv_dest=app/'Contents/Resources/mpv.app'
 shutil.copytree(mpvapp,mpv_dest,symlinks=True,ignore=shutil.ignore_patterns('_CodeSignature','._*','.gitkeep'))

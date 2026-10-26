@@ -89,17 +89,28 @@ def main():
     parser.add_argument('--to-version', default='0.2.2')
     parser.add_argument('--legacy-install-only', action='store_true')
     parser.add_argument('--current-host-fixture', action='store_true')
+    parser.add_argument('--previous-host', action='store_true',
+                        help='Automatically upgrade the unmodified version currently advertised by the production feed')
     parser.add_argument('--fixture-feed', action='store_true',
                         help='Use an isolated feed for historical installation tests; cannot publish')
     args = parser.parse_args()
     args.to_version = args.to_version.removeprefix('v')
+    if args.previous_host:
+        if args.current_host_fixture or args.legacy_install_only or args.fixture_feed:
+            parser.error('--previous-host cannot use a modified host, manual reopen or fixture feed')
+        with urllib.request.urlopen(release.FEED_URL, timeout=30) as response:
+            _, items = release._feed_entries(response.read())
+        previous = items[0].find(f'{{{release.SPARKLE_NS}}}shortVersionString') if items else None
+        if previous is None or not previous.text:
+            raise RuntimeError('The production feed has no previous version to upgrade')
+        args.from_version = previous.text
     if args.current_host_fixture:
         args.from_version = args.to_version
     if any(not re.fullmatch(r'\d+\.\d+\.\d+', value) for value in (args.from_version, args.to_version)):
         parser.error('release versions must be numeric major.minor.patch')
     if sys.platform != 'darwin' or os.environ.get('GITHUB_ACTIONS') != 'true':
         raise RuntimeError('Run this test only on an isolated macOS GitHub runner')
-    mode = 'current-host' if args.current_host_fixture else 'legacy'
+    mode = 'previous-host' if args.previous_host else ('current-host' if args.current_host_fixture else 'legacy')
     evidence = ROOT / 'outputs/sparkle-smoke-evidence' / mode
     evidence.mkdir(parents=True, exist_ok=True)
     result = {'from': args.from_version, 'to': args.to_version, 'passed': False,

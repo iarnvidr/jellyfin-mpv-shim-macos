@@ -55,6 +55,9 @@ jobs:
       - name: Verify current host automatic installation and relaunch
         if: github.event_name != 'pull_request'
         run: uv run --locked --no-sync python scripts/sparkle_smoke.py --current-host-fixture --to-version "$TO_VERSION"
+      - name: Verify the currently published host automatic upgrade and retained profile
+        if: github.event_name != 'pull_request'
+        run: uv run --locked --no-sync python scripts/sparkle_smoke.py --previous-host --to-version "$TO_VERSION"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

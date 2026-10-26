@@ -17,7 +17,9 @@ class AppcastQualification(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
-        self.feed = b'<rss version="2.0"><channel><title>Player</title></channel></rss>'
+        self.feed = (b'<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
+                     b'<channel><title>Player</title><item><sparkle:shortVersionString>0.2.2</sparkle:shortVersionString>'
+                     b'</item></channel></rss>')
         self.commit = 'a' * 40
         self.version = '0.2.3'
         metadata = {'version': self.version, 'signature': 'verified-by-native-test',
@@ -36,6 +38,14 @@ class AppcastQualification(unittest.TestCase):
         legacy = dict(self.record, mode='legacy', manual_reopen=True)
         (self.directory / 'legacy').mkdir()
         (self.directory / 'legacy/result.json').write_text(json.dumps(legacy))
+        self.write_previous({**self.record, 'mode': 'previous-host', 'from': '0.2.2',
+                             'before_signatures': {'valid': True}})
+
+    def write_previous(self, record):
+        path = self.directory / 'previous-host'
+        path.mkdir(exist_ok=True)
+        (path / 'result.json').write_text(json.dumps(record))
+        (path / 'candidate-appcast.xml').write_bytes(self.candidate)
 
     def write(self, record):
         path = self.directory / 'current-host'
@@ -54,7 +64,7 @@ class AppcastQualification(unittest.TestCase):
     def test_historical_installation_uses_an_isolated_fixture_feed(self):
         metadata = dict(self.record['metadata'], version='0.2.2',
                         asset_url=release.ASSET_ROOT + 'v0.2.2/Jellyfin-Player-0.2.2-Apple-Silicon.zip')
-        with self.assertRaisesRegex(ValueError, 'strictly newer'):
+        with self.assertRaisesRegex(ValueError, 'strictly newer|already exists'):
             sparkle_smoke.installation_appcast(self.candidate, metadata)
         candidate = sparkle_smoke.installation_appcast(self.candidate, metadata, fixture_feed=True)
         self.assertIn(b'<title>0.2.2</title>', candidate)
@@ -87,5 +97,20 @@ class AppcastQualification(unittest.TestCase):
             self.validate()
         self.write(self.record)
         (self.directory / 'current-host/candidate-appcast.xml').write_bytes(self.candidate + b'\n')
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_currently_published_host_must_upgrade_automatically_to_the_same_feed(self):
+        previous = json.loads((self.directory / 'previous-host/result.json').read_text())
+        for changes in ({'from': '0.0.0'}, {'before_signatures': {'valid': False}},
+                        {'manual_reopen': True}, {'new_pid': None}, {'passed': False},
+                        {'after_window': {'windows': 0}}, {'fixture_feed': True},
+                        {'base_feed_commit': 'b' * 40}, {'metadata': {}}, {'appcast_sha256': '0' * 64}):
+            with self.subTest(changes=changes):
+                self.write_previous(dict(previous, **changes))
+                with self.assertRaises(ValueError):
+                    self.validate()
+        self.write_previous(previous)
+        (self.directory / 'previous-host/candidate-appcast.xml').write_bytes(self.candidate + b'\n')
         with self.assertRaises(ValueError):
             self.validate()
