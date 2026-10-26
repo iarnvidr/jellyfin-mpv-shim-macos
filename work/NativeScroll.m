@@ -26,6 +26,19 @@ extern void JellyfinInstallNativeMenus(void);
 extern void JellyfinClosePlayerWindow(void);
 static void writeCommand(NSArray *command);
 
+// mpv maps buttonNumber, not just NSEvent.type. Preserve the original
+// event's window/coordinates while changing the complete mouse-button identity.
+static NSEvent *browserControlClick(NSEvent *event) {
+    CGEventRef mouse = CGEventCreateCopy(event.CGEvent);
+    if (!mouse) return nil;
+    CGEventSetType(mouse, event.type == NSEventTypeLeftMouseDown ? kCGEventRightMouseDown : kCGEventRightMouseUp);
+    CGEventSetIntegerValueField(mouse, kCGMouseEventButtonNumber, kCGMouseButtonRight);
+    CGEventSetFlags(mouse, CGEventGetFlags(mouse) & ~kCGEventFlagMaskControl);
+    NSEvent *context = [NSEvent eventWithCGEvent:mouse];
+    CFRelease(mouse);
+    return context;
+}
+
 static char restoreFrameKey;
 static BOOL sameFrame(NSRect a, NSRect b) {
     return fabs(a.origin.x-b.origin.x) < 2 && fabs(a.origin.y-b.origin.y) < 2 &&
@@ -424,11 +437,7 @@ __attribute__((constructor)) static void installNativeScrolling(void) {
                     if (!atomic_load(&browserContextEnabled)) return nil;
                     // mpv receives mouse buttons rather than AppKit context-menu
                     // callbacks. Translate the standard Control-click gesture.
-                    if (controlClick) return [NSEvent mouseEventWithType:
-                        event.type == NSEventTypeLeftMouseDown ? NSEventTypeRightMouseDown : NSEventTypeRightMouseUp
-                        location:event.locationInWindow modifierFlags:event.modifierFlags & ~NSEventModifierFlagControl
-                        timestamp:event.timestamp windowNumber:event.windowNumber context:nil
-                        eventNumber:event.eventNumber clickCount:event.clickCount pressure:event.pressure];
+                    if (controlClick) return browserControlClick(event);
                 }
                 // The engine's native title bar otherwise performs video-aspect
                 // zoom. Use the same fill/restore behavior as our drawn header.

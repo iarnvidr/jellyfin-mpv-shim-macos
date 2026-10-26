@@ -8,6 +8,18 @@ int main(void) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        for (NSNumber *down in @[@YES, @NO]) {
+            CGEventRef mouse = CGEventCreateMouseEvent(NULL, down.boolValue ? kCGEventLeftMouseDown : kCGEventLeftMouseUp,
+                CGPointMake(140, 180), kCGMouseButtonLeft);
+            CGEventSetFlags(mouse, kCGEventFlagMaskControl);
+            NSEvent *original = [NSEvent eventWithCGEvent:mouse];
+            NSEvent *context = browserControlClick(original);
+            NSCAssert(context.type == (down.boolValue ? NSEventTypeRightMouseDown : NSEventTypeRightMouseUp), @"Control-click has the wrong event type");
+            NSCAssert(context.buttonNumber == 1, @"Control-click still reaches mpv as a left button");
+            NSCAssert(!(context.modifierFlags & NSEventModifierFlagControl), @"Control-click still has the Control modifier");
+            NSCAssert(NSEqualPoints(original.locationInWindow, context.locationInWindow), @"Control-click changed target coordinates");
+            CFRelease(mouse);
+        }
         suppressEngineNowPlaying();
         MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = @{MPMediaItemPropertyTitle: @"mpv"};
         MPNowPlayingInfoCenter.defaultCenter.playbackState = MPNowPlayingPlaybackStatePlaying;
