@@ -1,0 +1,30 @@
+name: OCR captured menu-bar evidence
+on:
+  push:
+    branches: [diagnostics/menu-bar-ocr]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  read-pixels:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download existing captures and recognize actual menu-strip text
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          xcrun swiftc tests/native/ReadMenuBar.swift -o /tmp/read-menu-bar -framework AppKit -framework Vision
+          mkdir -p outputs/menu-ocr
+          for run in 40374100040 40374916210; do
+            gh run download "$run" --repo iarnvidr/jellyfin-mpv-shim-macos --pattern 'menu-bar-runtime-proof-*' --dir "captures/$run"
+            find "captures/$run" -name '*.png' -print0 | xargs -0 /tmp/read-menu-bar > "outputs/menu-ocr/$run.jsonl"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: menu-bar-actual-pixel-ocr
+          path: outputs/menu-ocr/*.jsonl
+          if-no-files-found: error
