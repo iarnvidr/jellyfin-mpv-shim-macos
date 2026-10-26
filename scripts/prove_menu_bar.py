@@ -20,7 +20,7 @@ def run(*args, **kwargs):
     return subprocess.run(list(map(str, args)), check=True, **kwargs)
 
 
-def snapshot(name, pid=None):
+def snapshot(name, pid=None, require_frontmost=True):
     result = run(PROBE, *([pid] if pid else []), capture_output=True, text=True)
     record = json.loads(result.stdout)
     (OUT / f'{name}.json').write_text(json.dumps(record, indent=2) + '\n')
@@ -28,7 +28,7 @@ def snapshot(name, pid=None):
     if shot.returncode:
         raise RuntimeError(f'Screenshot unavailable: {shot.stderr}')
     print(name, json.dumps(record['frontmost']), flush=True)
-    if pid and record['frontmost'].get('pid') != pid:
+    if pid and require_frontmost and record['frontmost'].get('pid') != pid:
         raise RuntimeError(f'{name}: activation did not make requested PID {pid} frontmost')
     return record
 
@@ -102,7 +102,9 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             if engine is None:
                 raise RuntimeError(f'{case}: engine and native menus did not start')
             time.sleep(3)
-            host_state = snapshot(case + '-host-active', proc.pid)
+            # The host intentionally forwards activation to the engine after
+            # 200 ms. Record that handoff instead of treating it as a failure.
+            host_state = snapshot(case + '-host-active', proc.pid, require_frontmost=False)
             engine_state = snapshot(case + '-engine-active', engine)
             initial = request(config, 'state')
             (OUT / f'{case}-core-state.json').write_text(json.dumps(initial, indent=2) + '\n')
