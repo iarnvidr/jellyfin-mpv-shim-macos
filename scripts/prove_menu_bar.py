@@ -103,7 +103,8 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'configurations':
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'mechanisms':
     cases = ['original-switch-legacy-to-native', 'original-switch-native-to-legacy',
              'original-windowed-vo-teardown', 'original-fullscreen-vo-teardown',
-             'observed-switch-legacy-to-native', 'original-http-profile']
+             'observed-switch-legacy-to-native', 'original-http-profile',
+             'original-intent-native', 'original-intent-legacy']
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'preferences-ui':
     cases = ['original-launchservices']
 requested_cases = os.environ.get('JELLYFIN_MENU_PROOF_CASE_FILTER', '')

@@ -64,7 +64,7 @@ jobs:
         run: |
           mkdir release
           gh run download "$APP_BUILD_RUN_ID" --repo iarnvidr/jellyfin-mpv-shim-macos --pattern "Jellyfin-Player-macOS-Apple-Silicon-$APP_BUILD_RUN_ID-*" --dir candidate-build
-          find candidate-build -type f -maxdepth 2
+          find candidate-build -type f
           cp candidate-build/*/*-Apple-Silicon.zip candidate-build/*/SHA256SUMS release/
           cd release
           awk '$2 ~ /-Apple-Silicon.zip$/' SHA256SUMS > zip-checksum

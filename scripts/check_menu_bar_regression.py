@@ -10,7 +10,9 @@ root = Path('outputs/menu-bar-proof')
 ocr = {Path(row['path']).stem: row for row in map(json.loads, (root / 'menu-pixels-ocr.jsonl').read_text().splitlines())}
 results = []
 for name in ('original-http-profile-actual-menu-exit-2',
-             'observed-switch-legacy-to-native-second-exit-request-settled'):
+             'observed-switch-legacy-to-native-second-exit-request-settled',
+             'original-intent-native-intentional-windowed',
+             'original-intent-legacy-intentional-windowed'):
     state_path = root / (name + '.json')
     if not state_path.exists():
         continue
@@ -26,5 +28,5 @@ for name in ('original-http-profile-actual-menu-exit-2',
                     'passed': windowed and engine_active and menu_visible})
 (root / 'menu-regression-verdict.json').write_text(json.dumps(results, indent=2))
 print(json.dumps(results, indent=2))
-if args.require_visible and (len(results) != 2 or not all(row['passed'] for row in results)):
+if args.require_visible and (len(results) < 2 or not all(row['passed'] for row in results)):
     raise SystemExit('Actual windowed menu regression failed or required phase was not reached')

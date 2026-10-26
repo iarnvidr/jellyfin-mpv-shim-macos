@@ -31,6 +31,12 @@ def exercise_mechanism(case, out, app, native, ipc, engine, server, snapshot, de
         # Idempotent second false request cannot accidentally enter fullscreen.
         fullscreen(False)
         record('second-exit-request-settled')
+    elif 'intent-' in case:
+        mpv(['set_property', 'native-fs', case.endswith('native')])
+        fullscreen(True)
+        record('intentional-fullscreen')
+        fullscreen(False)
+        record('intentional-windowed')
     else:
         mpv(['set_property', 'native-fs', False])
         fullscreen('fullscreen-vo' in case)
