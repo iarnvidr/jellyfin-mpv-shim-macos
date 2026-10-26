@@ -97,8 +97,7 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
         env['JELLYFIN_MENU_PROBE_REGULAR'] = '1'
     prior_sessions = {s['Id'] for s in server.api('GET', '/Sessions')}
     with (OUT / f'{case}-launcher.log').open('w') as log:
-        proc = subprocess.Popen([str(app / 'Contents/MacOS/Jellyfin Player'), '--config', str(config),
-                                 '--server', server.url, '--username', server.user, '--password', server.password],
+        proc = subprocess.Popen([str(app / 'Contents/MacOS/Jellyfin Player'), '--config', str(config)],
                                 env=env, stdout=log, stderr=subprocess.STDOUT)
         engine = None
         try:
@@ -115,11 +114,18 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             if engine is None:
                 raise RuntimeError(f'{case}: engine and native menus did not start')
             time.sleep(3)
+            snapshot(case + '-cold-launch-before-prompt')
             run(PROBE, '--dismiss-local-network')
+            snapshot(case + '-cold-launch', engine, require_frontmost=False, activate=False)
             # The host intentionally forwards activation to the engine after
             # 200 ms. Record that handoff instead of treating it as a failure.
             host_state = snapshot(case + '-host-active', proc.pid, require_frontmost=False)
             engine_state = snapshot(case + '-engine-active', engine)
+            # The GUI intentionally uses its own login path; CLI credential
+            # flags are only consumed by the upstream command-line UI.
+            run(PROBE, '--login', engine, server.url, server.user, server.password)
+            time.sleep(3)
+            snapshot(case + '-after-real-login', engine, activate=False)
             server.start_playback(native, ipc, case, prior_sessions)
             snapshot(case + '-playing-windowed', engine, activate=False)
             if case != 'original-release':
@@ -173,7 +179,11 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             assert request(config, 'close').get('ok') is True
             time.sleep(3)
             snapshot(case + '-closed-from-fullscreen')
-            snapshot(case + '-host-reopen-after-fullscreen-close', proc.pid, require_frontmost=False)
+            # LaunchServices sends applicationShouldHandleReopen; mere host
+            # activation intentionally leaves a deliberately closed window shut.
+            run('/usr/bin/open', '-a', app)
+            time.sleep(3)
+            snapshot(case + '-host-reopen-after-fullscreen-close')
             snapshot(case + '-engine-after-fullscreen-close', engine, activate=False)
             summary.append({'case': case, 'hostPID': proc.pid, 'enginePID': engine,
                             'hostFrontmost': host_state['frontmost'], 'engineFrontmost': engine_state['frontmost']})

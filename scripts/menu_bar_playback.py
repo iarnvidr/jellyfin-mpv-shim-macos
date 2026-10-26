@@ -58,12 +58,22 @@ class PlaybackServer:
         auth = self.api('POST', '/Users/AuthenticateByName', {'Username': self.user, 'Pw': self.password})
         self.token = auth['AccessToken']
         self.user_id = auth['User']['Id']
+        self.api('GET', '/Users/Me')
+        # Startup/Complete queues its own library scan. Adding a library while
+        # that scan runs can coalesce refreshLibrary=true into the old scan,
+        # which started with no virtual folders and never sees our movie.
+        wait_for('startup library scan idle', self.library_idle)
         self.api('POST', '/Library/VirtualFolders?' + urllib.parse.urlencode({
-            'name': 'Proof', 'collectionType': 'movies', 'paths': str(media), 'refreshLibrary': 'true'}))
+            'name': 'Proof', 'collectionType': 'movies', 'paths': str(media), 'refreshLibrary': 'false'}))
+        self.api('POST', '/Library/Refresh')
         self.item = wait_for('indexed playable movie', lambda: next(iter(self.api('GET',
             '/Items?' + urllib.parse.urlencode({'userId': self.user_id, 'recursive': 'true',
                                                'includeItemTypes': 'Movie'}))['Items']), None))
         (out / 'server-item.json').write_text(json.dumps(self.item, indent=2))
+
+    def library_idle(self):
+        tasks = self.api('GET', '/ScheduledTasks')
+        return not any(t.get('Key') == 'RefreshLibrary' and t.get('State') in ('Running', 'Cancelling') for t in tasks)
 
     def api(self, method, path, body=None):
         headers = {'Authorization': 'MediaBrowser Client="Menu Bar Proof", Device="CI", DeviceId="menu-bar-proof", Version="1"'}

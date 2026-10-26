@@ -76,23 +76,67 @@ static void dismissLocalNetworkPrompt(void) {
                     axText(element, kAXDescriptionAttribute), axText(element, kAXValueAttribute)];
             }
             if ([text rangeOfString:@"local network" options:NSCaseInsensitiveSearch].location == NSNotFound) continue;
+            NSMutableArray *buttons = [NSMutableArray array];
             for (id node in nodes) {
                 AXUIElementRef element = (__bridge AXUIElementRef)node;
                 NSString *title = axText(element, kAXTitleAttribute);
-                if ([title isEqualToString:@"Don’t Allow"] || [title isEqualToString:@"Don't Allow"]) {
+                NSString *description = axText(element, kAXDescriptionAttribute);
+                NSString *value = axText(element, kAXValueAttribute);
+                if ([axText(element, kAXRoleAttribute) isEqualToString:@"AXButton"])
+                    [buttons addObject:@{@"title": title, @"description": description, @"value": value}];
+                NSArray *labels = @[title, description, value];
+                if ([labels containsObject:@"Don’t Allow"] || [labels containsObject:@"Don't Allow"]) {
                     AXError pressed = AXUIElementPerformAction(element, kAXPressAction);
                     emitRecord(@{@"localNetworkPrompt": @"dismissed", @"axResult": @(pressed)}, nil);
                     return;
                 }
             }
+            emitRecord(@{@"localNetworkPrompt": @"found-without-matching-button", @"buttons": buttons}, nil);
         }
     }
     emitRecord(@{@"localNetworkPrompt": @"not-found"}, nil);
 }
 
+static int loginPlayer(pid_t pid, NSArray<NSString *> *values) {
+    NSArray *identifiers = @[@"login-server", @"login-user", @"login-pass", @"login-connect"];
+    AXUIElementRef root = AXUIElementCreateApplication(pid);
+    for (NSUInteger step = 0; step < identifiers.count; step++) {
+        NSMutableArray *nodes = [NSMutableArray array];
+        axNodes(root, nodes, 0);
+        BOOL found = NO;
+        for (id node in nodes) {
+            AXUIElementRef element = (__bridge AXUIElementRef)node;
+            if (![axText(element, CFSTR("AXIdentifier")) isEqualToString:identifiers[step]]) continue;
+            AXError result = step < 3
+                ? AXUIElementSetAttributeValue(element, kAXValueAttribute, (__bridge CFStringRef)values[step])
+                : AXUIElementPerformAction(element, kAXPressAction);
+            emitRecord(@{@"loginControl": identifiers[step], @"axResult": @(result)}, nil);
+            if (result != kAXErrorSuccess) { CFRelease(root); return 1; }
+            found = YES;
+            break;
+        }
+        if (!found) {
+            NSMutableArray *controls = [NSMutableArray array];
+            for (id node in nodes) {
+                AXUIElementRef element = (__bridge AXUIElementRef)node;
+                [controls addObject:@{@"id": axText(element, CFSTR("AXIdentifier")),
+                    @"role": axText(element, kAXRoleAttribute), @"title": axText(element, kAXTitleAttribute),
+                    @"description": axText(element, kAXDescriptionAttribute)}];
+            }
+            emitRecord(@{@"missingLoginControl": identifiers[step], @"controls": controls}, nil);
+            CFRelease(root); return 1;
+        }
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.75]];
+    }
+    CFRelease(root); return 0;
+}
+
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        if (argc > 1 && strcmp(argv[1], "--dismiss-local-network") == 0) {
+        if (argc == 6 && strcmp(argv[1], "--login") == 0) {
+            return loginPlayer(atoi(argv[2]), @[[NSString stringWithUTF8String:argv[3]],
+                [NSString stringWithUTF8String:argv[4]], [NSString stringWithUTF8String:argv[5]]]);
+        } else if (argc > 1 && strcmp(argv[1], "--dismiss-local-network") == 0) {
             dismissLocalNetworkPrompt();
         } else if (argc > 1) {
             NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:atoi(argv[1])];
