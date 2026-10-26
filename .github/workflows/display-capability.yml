@@ -1,0 +1,36 @@
+name: Display topology capability proof
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capability:
+    runs-on: macos-26
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Attempt actual second HiDPI display in disposable runner
+        run: |
+          mkdir -p outputs/display-capability
+          sw_vers > outputs/display-capability/os.txt
+          xcrun clang -fobjc-arc -fblocks tests/native/ProbeVirtualDisplay.m -o /tmp/probe-virtual-display -framework Cocoa -framework CoreGraphics
+          /tmp/probe-virtual-display "$PWD/outputs/display-capability" 30 > outputs/display-capability/timeline.jsonl 2> outputs/display-capability/helper.log &
+          display_probe_pid=$!
+          trap 'kill "$display_probe_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..40}; do
+            if test -f outputs/display-capability/after.json; then break; fi
+            sleep .5
+          done
+          test -f outputs/display-capability/after.json
+          /usr/sbin/screencapture -x -D 1 outputs/display-capability/display-1.png
+          if python3 -c 'import json; raise SystemExit(not json.load(open("outputs/display-capability/after.json"))["qualifiedSecondHiDPI"])'; then
+            /usr/sbin/screencapture -x -D 2 outputs/display-capability/display-2.png
+          fi
+          touch outputs/display-capability/remove-request
+          wait "$display_probe_pid"
+          cat outputs/display-capability/after.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: display-topology-capability-macos-26
+          path: outputs/display-capability
