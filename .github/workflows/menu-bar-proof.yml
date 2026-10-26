@@ -65,7 +65,14 @@ jobs:
           mkdir release
           gh run download "$APP_BUILD_RUN_ID" --repo iarnvidr/jellyfin-mpv-shim-macos --pattern "Jellyfin-Player-macOS-Apple-Silicon-$APP_BUILD_RUN_ID-*" --dir candidate-build
           find candidate-build -type f
-          cp candidate-build/*/*-Apple-Silicon.zip candidate-build/*/SHA256SUMS release/
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          for pattern in ('*-Apple-Silicon.zip', 'SHA256SUMS'):
+              matches = list(Path('candidate-build').rglob(pattern))
+              assert len(matches) == 1, (pattern, matches)
+              shutil.copy2(matches[0], 'release')
+          PY
           cd release
           awk '$2 ~ /-Apple-Silicon.zip$/' SHA256SUMS > zip-checksum
           test -s zip-checksum
