@@ -512,6 +512,14 @@ final class MenuStateDiagnostics {
             return number.doubleValue.isFinite && ((CFGetTypeID(number) == CFBooleanGetTypeID()) == (type == "boolean"))
         }
         guard let allowed = keys[kind], Set(object.keys) == allowed else { return false }
+        if kind == "document", object["schema"] as? Int != 1 { return false }
+        if kind == "identity" {
+            for key in ["pid", "hostPID", "corePID"] {
+                guard let n = object[key] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
+                      n.doubleValue.rounded(.towardZero) == n.doubleValue,
+                      n.doubleValue >= 2, n.doubleValue <= Double(Int32.max) else { return false }
+            }
+        }
         for (key, item) in object {
             let nested = ["identity": "identity", "initial": "entry", "state": "state", "preferences": "preferences", "engineProperties": "engineProperties", "_HIHideMenuBar": "preference", "AppleMenuBarVisibleInFullscreen": "preference"]
             if let child = nested[key] { if !validPeer(item, kind: child) { return false }; continue }
@@ -592,7 +600,12 @@ final class MenuStateDiagnostics {
             return result
         }
         own = bounded(own)
-        if let doc = peer["document"] as? [String: Any] { peer["document"] = bounded(doc) }
+        if let doc = peer["document"] as? [String: Any] {
+            if let initial = doc["initial"] as? [String: Any],
+               (initial["monotonic"] as? Double ?? .infinity) > cutoff {
+                peer = ["status": "newerThanCutoff"]
+            } else { peer["document"] = bounded(doc) }
+        }
         var report: [String: Any] = ["schema": 1, "capture": "beforeSettings", "nonAtomic": true,
                                    "cutoffMonotonic": cutoff, "own": own, "peer": peer]
         // Whole valid JSON only: reduce history further if unusual display/window counts exceed the clipboard bound.
