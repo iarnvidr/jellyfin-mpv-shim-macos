@@ -7,7 +7,11 @@ permissions:
   contents: read
 jobs:
   reproduce:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -15,11 +19,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          sw_vers
+          uname -m
           mkdir release
           gh release download v0.2.9 --repo iarnvidr/jellyfin-mpv-shim-macos --pattern Jellyfin-Player-0.2.9-Apple-Silicon.zip --pattern SHA256SUMS --dir release
           cd release
-          shasum -a 256 Jellyfin-Player-0.2.9-Apple-Silicon.zip
-          cat SHA256SUMS
+          awk '$2 == "Jellyfin-Player-0.2.9-Apple-Silicon.zip"' SHA256SUMS > zip-checksum
+          test -s zip-checksum
+          shasum -a 256 --check zip-checksum
           ditto -x -k Jellyfin-Player-0.2.9-Apple-Silicon.zip .
       - name: Capture release and controlled activation policy comparison
         run: python3 scripts/prove_menu_bar.py
@@ -27,7 +34,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: menu-bar-runtime-proof
+          name: menu-bar-runtime-proof-${{ matrix.os }}
           path: |
             outputs/menu-bar-proof/*.png
             outputs/menu-bar-proof/*.json
