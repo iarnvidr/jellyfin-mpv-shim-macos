@@ -2,6 +2,7 @@
 #import <Cocoa/Cocoa.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <unistd.h>
+#import <objc/runtime.h>
 
 static NSDictionary *appIdentity(NSRunningApplication *app) {
     if (!app) return @{};
@@ -313,10 +314,60 @@ int main(int argc, const char **argv) {
     return 0;
 }
 #else
+static void transitionRecord(NSString *event, NSDictionary *details) {
+    NSString *path = NSProcessInfo.processInfo.environment[@"JELLYFIN_MENU_PROBE_OUTPUT"];
+    if (!path) return;
+    NSMutableArray *windows = [NSMutableArray array];
+    for (NSWindow *window in NSApp.windows) {
+        [windows addObject:@{@"number": @(window.windowNumber), @"class": NSStringFromClass(window.class),
+            @"styleMask": @(window.styleMask), @"visible": @(window.visible), @"key": @(window.keyWindow),
+            @"activeSpace": @(window.onActiveSpace), @"frame": NSStringFromRect(window.frame),
+            @"screenFrame": window.screen ? NSStringFromRect(window.screen.frame) : @"",
+            @"visibleFrame": window.screen ? NSStringFromRect(window.screen.visibleFrame) : @""}];
+    }
+    emitRecord(@{@"event": event, @"time": @(NSDate.date.timeIntervalSince1970), @"pid": @(getpid()),
+        @"presentationOptions": @(NSApp.presentationOptions),
+        @"systemPresentationOptions": @(NSApp.currentSystemPresentationOptions),
+        @"active": @(NSApp.active), @"policy": @(NSApp.activationPolicy),
+        @"windows": windows, @"details": details ?: @{}}, path);
+}
+
+@implementation NSApplication (MenuTransitionObservation)
+- (void)probeSetPresentationOptions:(NSApplicationPresentationOptions)value {
+    transitionRecord(@"presentation-write-before", @{@"requested": @(value), @"stack": NSThread.callStackSymbols});
+    [self probeSetPresentationOptions:value];
+    transitionRecord(@"presentation-write-after", @{@"requested": @(value)});
+}
+@end
+
+@implementation NSWindow (MenuTransitionObservation)
+- (void)probeToggleFullScreen:(id)sender {
+    transitionRecord(@"native-toggle-before", @{@"windowNumber": @(self.windowNumber)});
+    [self probeToggleFullScreen:sender];
+    transitionRecord(@"native-toggle-after", @{@"windowNumber": @(self.windowNumber)});
+}
+@end
+
 __attribute__((constructor)) static void installMenuBarProbe(void) {
     NSString *path = NSProcessInfo.processInfo.environment[@"JELLYFIN_MENU_PROBE_OUTPUT"];
     if (!path) return;
     dispatch_async(dispatch_get_main_queue(), ^{
+        method_exchangeImplementations(class_getInstanceMethod(NSApplication.class, @selector(setPresentationOptions:)),
+            class_getInstanceMethod(NSApplication.class, @selector(probeSetPresentationOptions:)));
+        method_exchangeImplementations(class_getInstanceMethod(NSWindow.class, @selector(toggleFullScreen:)),
+            class_getInstanceMethod(NSWindow.class, @selector(probeToggleFullScreen:)));
+        NSArray *notifications = @[NSWindowWillEnterFullScreenNotification, NSWindowDidEnterFullScreenNotification,
+            NSWindowWillExitFullScreenNotification, NSWindowDidExitFullScreenNotification,
+            NSWindowDidResizeNotification, NSWindowDidChangeScreenNotification, NSWindowWillCloseNotification,
+            NSWindowDidChangeOcclusionStateNotification, NSApplicationDidBecomeActiveNotification,
+            NSApplicationDidResignActiveNotification];
+        for (NSString *name in notifications) {
+            [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
+                transitionRecord(name, @{@"objectClass": NSStringFromClass([note.object class]) ?: @""});
+            }];
+        }
+        [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification
+            object:nil queue:nil usingBlock:^(NSNotification *note) { transitionRecord(note.name, @{}); }];
         NSTimer *timer = [NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) {
             NSMutableDictionary *record = [desktopState() mutableCopy];
             record[@"pid"] = @(getpid());

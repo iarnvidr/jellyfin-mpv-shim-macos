@@ -17,6 +17,7 @@ from menu_bar_preferences import exercise_preferences
 from menu_bar_mechanisms import exercise_mechanism
 from menu_bar_ui_preferences import exercise_ui_preferences
 from menu_bar_browser import exercise_browser
+from menu_bar_transitions import exercise_transitions
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'outputs/menu-bar-proof'
@@ -110,6 +111,9 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'preferences-ui':
     cases = ['original-launchservices']
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'browser-focus':
     cases = ['original-browser']
+if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'transitions':
+    cases = ['original-transition-race', 'original-legacy-zoom',
+             'observed-transition-race', 'observed-legacy-zoom']
 requested_cases = os.environ.get('JELLYFIN_MENU_PROOF_CASE_FILTER', '')
 if requested_cases:
     selected = requested_cases.split(',')
@@ -148,7 +152,7 @@ for case in cases:
             shutil.copy2(icon, target)
         run('codesign', '--force', '--deep', '--sign', '-', app)
     original_case = case.startswith('original-')
-    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus')
+    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus', 'transitions')
     if not original_case:
         # Core launches mpv with its own embedded library, not the outer
         # host's duplicate. Replace each copy and verify the probe ran below.
@@ -268,11 +272,16 @@ for case in cases:
                 snapshot(case + '-startup-fullscreen-playing', engine, activate=False)
                 request(config, 'fullscreen')
                 time.sleep(4)
-            if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'mechanisms':
+            if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('mechanisms', 'transitions'):
                 # Establish the playback engine's foreground precondition
                 # before the experiment; subsequent transition captures are passive.
                 snapshot(case + '-explicit-precondition-activation', engine)
             playing_state = snapshot(case + '-playing-windowed', engine, activate=False)
+            if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'transitions':
+                result = exercise_transitions(case, OUT, app, native, ipc, engine, server, snapshot,
+                                              device_id, config, request)
+                summary.append({'case': case, 'transitions': result})
+                continue
             if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'mechanisms':
                 if case.startswith('observed-'):
                     assert (OUT / f'{case}-in-process.jsonl').exists(), 'Observation library did not load'
