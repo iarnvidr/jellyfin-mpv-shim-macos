@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'outputs/menu-bar-proof'
 OUT.mkdir(parents=True, exist_ok=True)
 PROBE = OUT / 'probe'
+CURRENT_IPC = None
 
 
 def run(*args, **kwargs):
@@ -26,6 +27,15 @@ def snapshot(name, pid=None, require_frontmost=True, activate=True):
     # chance to repair it. Focus switching/reopen explicitly opt into activation.
     result = run(PROBE, *([pid] if pid and activate else []), capture_output=True, text=True)
     record = json.loads(result.stdout)
+    if CURRENT_IPC and CURRENT_IPC.exists():
+        properties = {}
+        for prop in ('fullscreen', 'native-fs', 'window-maximized', 'window-minimized', 'ontop', 'border', 'time-pos',
+                     'options/macos-app-activation-policy'):
+            try:
+                properties[prop] = PlaybackServer.mpv(CURRENT_IPC, ['get_property', prop])
+            except (OSError, ValueError, RuntimeError) as error:
+                properties[prop] = {'error': str(error)}
+        record['mpvState'] = properties
     (OUT / f'{name}.json').write_text(json.dumps(record, indent=2) + '\n')
     shot = subprocess.run(['/usr/sbin/screencapture', '-x', str(OUT / f'{name}.png')], capture_output=True, text=True)
     if shot.returncode:
@@ -69,7 +79,7 @@ run('xcrun', 'swiftc', ROOT / 'work/NativeMenus.swift', ROOT / 'work/NativeSetti
 original = ROOT / 'release/Jellyfin Player.app'
 server = PlaybackServer(ROOT, OUT)
 summary = []
-for case in ['original-release', 'instrumented-accessory', 'instrumented-regular']:
+for case in ['original-release', 'instrumented-accessory', 'instrumented-regular', 'stable-accessory']:
     app = OUT / case / 'Jellyfin Player.app'
     app.parent.mkdir()
     shutil.copytree(original, app, symlinks=True)
@@ -84,11 +94,16 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
     config = OUT / case / 'profile'
     config.mkdir()
     ipc = Path('/tmp') / f'menu-proof-{os.getpid()}.sock'
+    CURRENT_IPC = ipc
     (config / 'conf.json').write_text(json.dumps({
         'mpv_ext': True, 'mpv_ext_path': None, 'fullscreen': False,
         'browser_fullscreen': False, 'hide_title_bar': False,
         'mpv_ext_ipc': str(ipc), 'client_uuid': case,
     }))
+    if case == 'stable-accessory':
+        # Keep mpv's own VO initialization consistent with the hosted app's
+        # policy, instead of default regular -> branding accessory transitions.
+        (config / 'mpv.conf').write_text('macos-app-activation-policy=accessory\n')
     native = OUT / case / 'native-menus'
     native.mkdir()
     env = dict(os.environ, JELLYFIN_PLAYER_MENU_DIAGNOSTICS=str(native),
@@ -127,12 +142,17 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             time.sleep(3)
             snapshot(case + '-after-real-login', engine, activate=False)
             server.start_playback(native, ipc, case, prior_sessions)
-            snapshot(case + '-playing-windowed', engine, activate=False)
+            playing_state = snapshot(case + '-playing-windowed', engine, activate=False)
             if case != 'original-release':
                 records = [json.loads(line) for line in (OUT / f'{case}-in-process.jsonl').read_text().splitlines()]
                 assert records, 'Instrumented library did not produce runtime records'
                 expected_policy = 0 if case == 'instrumented-regular' else 1
-                assert engine_state['frontmost']['policy'] == expected_policy, 'Activation policy intervention did not take effect'
+                assert engine_state['frontmost']['policy'] == expected_policy, 'Activation policy intervention did not take effect at launch'
+                if case == 'stable-accessory':
+                    assert playing_state['frontmost']['policy'] == 1, 'Stable accessory policy did not survive media initialization'
+                    assert playing_state['mpvState']['options/macos-app-activation-policy'] == 'accessory'
+                if case == 'instrumented-regular':
+                    assert playing_state['frontmost']['policy'] == 0, 'Regular policy did not survive media initialization'
             initial = request(config, 'state')
             (OUT / f'{case}-core-state.json').write_text(json.dumps(initial, indent=2) + '\n')
             # Reproduce the transition as well as a cold windowed launch.
@@ -142,12 +162,20 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
                     raise RuntimeError(f'{case}: fullscreen action rejected: {result}')
                 time.sleep(4)
                 snapshot(case + '-' + phase, engine, activate=False)
+                if phase == 'leave-fullscreen':
+                    time.sleep(2)
+                    snapshot(case + '-leave-fullscreen-later', engine, activate=False)
             # Switching focus tests both host/engine handoff paths while media
             # continues playing. Finder activation is recorded as its own case.
             finder = json.loads(run('osascript', '-e', 'tell application "System Events" to get unix id of process "Finder"',
                                     capture_output=True, text=True).stdout)
             snapshot(case + '-finder-active', finder)
-            snapshot(case + '-playing-after-app-switch', engine)
+            refocus = snapshot(case + '-playing-after-app-switch', engine, require_frontmost=False)
+            if refocus['frontmost'].get('pid') != engine:
+                print(f'{case}: direct engine activation failed after app switch; recorded before host reopen recovery', flush=True)
+                run('/usr/bin/open', '-a', app)
+                time.sleep(3)
+                snapshot(case + '-playing-after-host-reopen', engine, activate=False)
             for phase in ['zoom', 'restore']:
                 result = request(config, 'zoom')
                 if result.get('ok') is not True:
@@ -186,7 +214,9 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             snapshot(case + '-host-reopen-after-fullscreen-close')
             snapshot(case + '-engine-after-fullscreen-close', engine, activate=False)
             summary.append({'case': case, 'hostPID': proc.pid, 'enginePID': engine,
-                            'hostFrontmost': host_state['frontmost'], 'engineFrontmost': engine_state['frontmost']})
+                            'hostFrontmost': host_state['frontmost'], 'engineFrontmost': engine_state['frontmost'],
+                            'playingFrontmost': playing_state['frontmost'],
+                            'directEngineRefocusSucceeded': refocus['frontmost'].get('pid') == engine})
         finally:
             proc.terminate()
             try:
