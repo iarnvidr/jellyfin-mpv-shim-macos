@@ -245,7 +245,47 @@ static int loginPlayer(pid_t pid, NSArray<NSString *> *values) {
 
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        if (argc == 3 && strcmp(argv[1], "--menu-auto-hide") == 0) {
+        if (argc >= 3 && strcmp(argv[1], "--controls") == 0) {
+            AXUIElementRef root = AXUIElementCreateApplication(atoi(argv[2]));
+            NSMutableArray *nodes = [NSMutableArray array]; axNodes(root, nodes, 0);
+            NSMutableArray *controls = [NSMutableArray array];
+            for (id node in nodes) {
+                AXUIElementRef element = (__bridge AXUIElementRef)node;
+                NSMutableDictionary *item = [@{@"id": axText(element, CFSTR("AXIdentifier")),
+                    @"title": axText(element, kAXTitleAttribute), @"description": axText(element, kAXDescriptionAttribute),
+                    @"value": axText(element, kAXValueAttribute), @"role": axText(element, kAXRoleAttribute)} mutableCopy];
+                CFTypeRef position = NULL, size = NULL; CGPoint point; CGSize extent;
+                if (AXUIElementCopyAttributeValue(element, kAXPositionAttribute, &position) == kAXErrorSuccess &&
+                    AXUIElementCopyAttributeValue(element, kAXSizeAttribute, &size) == kAXErrorSuccess &&
+                    AXValueGetValue(position, kAXValueCGPointType, &point) && AXValueGetValue(size, kAXValueCGSizeType, &extent))
+                    item[@"bounds"] = @[@(point.x), @(point.y), @(extent.width), @(extent.height)];
+                if (position) CFRelease(position); if (size) CFRelease(size);
+                [controls addObject:item];
+            }
+            CFRelease(root); emitRecord(@{@"controls": controls}, nil);
+        } else if ((argc == 4 || argc == 5) && strcmp(argv[1], "--click") == 0) {
+            CGPoint point = CGPointMake(atof(argv[2]), atof(argv[3]));
+            NSString *mode = argc == 5 ? [NSString stringWithUTF8String:argv[4]] : @"left";
+            BOOL right = [mode isEqualToString:@"right"];
+            for (NSNumber *type in @[@(kCGEventMouseMoved), @(right ? kCGEventRightMouseDown : kCGEventLeftMouseDown),
+                                     @(right ? kCGEventRightMouseUp : kCGEventLeftMouseUp)]) {
+                CGEventRef event = CGEventCreateMouseEvent(NULL, type.unsignedIntValue, point, right ? kCGMouseButtonRight : kCGMouseButtonLeft);
+                if ([mode isEqualToString:@"control"]) CGEventSetFlags(event, kCGEventFlagMaskControl);
+                CGEventPost(kCGHIDEventTap, event); CFRelease(event);
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+            }
+            emitRecord(@{@"clickX": @(point.x), @"clickY": @(point.y), @"mode": mode}, nil);
+        } else if (argc == 3 && strcmp(argv[1], "--key") == 0) {
+            NSString *key = [NSString stringWithUTF8String:argv[2]];
+            CGKeyCode code = [key isEqualToString:@"cmd-tab"] ? 48 : 4;
+            if (![@[@"cmd-tab", @"cmd-h"] containsObject:key]) return 2;
+            for (NSNumber *down in @[@YES, @NO]) {
+                CGEventRef event = CGEventCreateKeyboardEvent(NULL, code, down.boolValue);
+                CGEventSetFlags(event, kCGEventFlagMaskCommand); CGEventPost(kCGHIDEventTap, event); CFRelease(event);
+                [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+            }
+            emitRecord(@{@"key": key}, nil);
+        } else if (argc == 3 && strcmp(argv[1], "--menu-auto-hide") == 0) {
             return menuAutoHide([NSString stringWithUTF8String:argv[2]]);
         } else if (argc == 4 && strcmp(argv[1], "--pointer") == 0) {
             CGPoint point = CGPointMake(atof(argv[2]), atof(argv[3]));

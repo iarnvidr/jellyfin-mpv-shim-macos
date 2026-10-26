@@ -11,7 +11,7 @@ on:
         default: 'yes'
       scenario:
         type: choice
-        options: ['default', 'launchservices', 'configurations', 'mechanisms', 'preferences-ui']
+        options: ['default', 'launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus']
         default: 'default'
       runner:
         type: choice
@@ -30,6 +30,12 @@ on:
       app_build_run_id:
         type: string
         default: ''
+      release_version:
+        type: string
+        default: '0.2.9'
+      require_browser_context:
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -46,16 +52,17 @@ jobs:
         if: inputs.app_build_run_id == ''
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.release_version || '0.2.9' }}
         run: |
           sw_vers
           uname -m
           mkdir release
-          gh release download v0.2.9 --repo iarnvidr/jellyfin-mpv-shim-macos --pattern Jellyfin-Player-0.2.9-Apple-Silicon.zip --pattern SHA256SUMS --dir release
+          gh release download "v$RELEASE_VERSION" --repo iarnvidr/jellyfin-mpv-shim-macos --pattern "Jellyfin-Player-$RELEASE_VERSION-Apple-Silicon.zip" --pattern SHA256SUMS --dir release
           cd release
-          awk '$2 == "Jellyfin-Player-0.2.9-Apple-Silicon.zip"' SHA256SUMS > zip-checksum
+          awk -v file="Jellyfin-Player-$RELEASE_VERSION-Apple-Silicon.zip" '$2 == file' SHA256SUMS > zip-checksum
           test -s zip-checksum
           shasum -a 256 --check zip-checksum
-          ditto -x -k Jellyfin-Player-0.2.9-Apple-Silicon.zip .
+          ditto -x -k "Jellyfin-Player-$RELEASE_VERSION-Apple-Silicon.zip" .
       - name: Download exact freshly packaged candidate
         if: inputs.app_build_run_id != ''
         env:
@@ -116,6 +123,7 @@ jobs:
           JELLYFIN_MENU_PROOF_NATIVE_FS: ${{ inputs.native_fs || 'yes' }}
           JELLYFIN_MENU_PROOF_SCENARIO: ${{ inputs.scenario || 'default' }}
           JELLYFIN_MENU_PROOF_CASE_FILTER: ${{ inputs.case_filter }}
+          JELLYFIN_MENU_REQUIRE_BROWSER_CONTEXT: ${{ inputs.require_browser_context && '1' || '0' }}
         run: python3 scripts/prove_menu_bar.py
       - name: Read actual menu-strip screenshot text with Apple Vision
         if: always()

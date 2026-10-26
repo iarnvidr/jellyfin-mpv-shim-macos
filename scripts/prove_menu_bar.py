@@ -16,6 +16,7 @@ from menu_bar_launch import launch
 from menu_bar_preferences import exercise_preferences
 from menu_bar_mechanisms import exercise_mechanism
 from menu_bar_ui_preferences import exercise_ui_preferences
+from menu_bar_browser import exercise_browser
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'outputs/menu-bar-proof'
@@ -107,6 +108,8 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'mechanisms':
              'original-intent-native', 'original-intent-legacy']
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'preferences-ui':
     cases = ['original-launchservices']
+if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'browser-focus':
+    cases = ['original-browser']
 requested_cases = os.environ.get('JELLYFIN_MENU_PROOF_CASE_FILTER', '')
 if requested_cases:
     selected = requested_cases.split(',')
@@ -116,6 +119,12 @@ for case in cases:
     app = OUT / case / 'Jellyfin Player.app'
     app.parent.mkdir()
     shutil.copytree(original, app, symlinks=True)
+    if case == 'original-browser':
+        # Normal installed location, retaining the exact published signature.
+        installed = Path('/Applications/Jellyfin Player.app')
+        assert not installed.exists(), 'Disposable runner unexpectedly has an installed app'
+        shutil.move(str(app), installed)
+        app = installed
     replacement = os.environ.get('JELLYFIN_MENU_PROOF_ENGINE_APP')
     if replacement:
         destination = app / 'Contents/Resources/mpv.app'
@@ -139,7 +148,7 @@ for case in cases:
             shutil.copy2(icon, target)
         run('codesign', '--force', '--deep', '--sign', '-', app)
     original_case = case.startswith('original-')
-    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui')
+    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus')
     if not original_case:
         # Core launches mpv with its own embedded library, not the outer
         # host's duplicate. Replace each copy and verify the probe ran below.
@@ -234,6 +243,10 @@ for case in cases:
             time.sleep(3)
             snapshot(case + '-after-real-login', engine, require_frontmost=False, activate=False)
             device_id = active_profile(config)['device_id']
+            if case == 'original-browser':
+                result = exercise_browser(OUT, app, config, PROBE, engine, proc.pid, server, snapshot, request)
+                summary.append({'case': case, **result})
+                continue
             if case == 'original-http-profile':
                 assert server.mpv(ipc, ['get_property', 'native-fs']) is False
                 assert request(config, 'fullscreen').get('ok') is True
