@@ -319,11 +319,13 @@ final class MenuStateDiagnostics {
     private let role: String
     private let identity: [String: Any]
     private let directory: URL
+    private var storageSafe = false
     private let io = DispatchQueue(label: "org.jellyfin.mpvshim.menu-state")
     private var history: [[String: Any]] = []
     private var initial: [String: Any]?
     private var lastState = Data()
     private var total = 0
+    private var lastPersistedMonotonic = -Double.infinity
     private var timer: Timer?
     private var observation: NSKeyValueObservation?
     private var notifications: [NSObjectProtocol] = []
@@ -345,7 +347,12 @@ final class MenuStateDiagnostics {
             .appendingPathComponent("Logs/Jellyfin Player/menu-state", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: directory.path),
+           attributes[.type] as? FileAttributeType == .typeDirectory,
+           (attributes[.ownerAccountID] as? NSNumber)?.uint32Value == geteuid() {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            storageSafe = true
+        }
         sample(reason: "initial")
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.sample(reason: "sample") }
         RunLoop.main.add(timer, forMode: .common)
@@ -367,7 +374,9 @@ final class MenuStateDiagnostics {
     private func rect(_ r: NSRect) -> [Double] { [r.origin.x, r.origin.y, r.width, r.height] }
     private func preference(_ key: String) -> [String: Any] {
         guard let value = CFPreferencesCopyValue(key as CFString, kCFPreferencesAnyApplication,
-                                                kCFPreferencesCurrentUser, kCFPreferencesAnyHost) else { return ["type": "missing"] }
+                                                kCFPreferencesCurrentUser, kCFPreferencesCurrentHost)
+                ?? CFPreferencesCopyValue(key as CFString, kCFPreferencesAnyApplication,
+                                          kCFPreferencesCurrentUser, kCFPreferencesAnyHost) else { return ["type": "missing"] }
         if CFGetTypeID(value) == CFBooleanGetTypeID() { return ["type": "boolean", "value": (value as! NSNumber).boolValue] }
         if CFGetTypeID(value) == CFNumberGetTypeID() { return ["type": "number", "value": (value as! NSNumber).doubleValue] }
         return ["type": "unsupported"]
@@ -424,7 +433,8 @@ final class MenuStateDiagnostics {
         var semantic = current
         semantic.removeValue(forKey: "mouse")
         let encoded = (try? JSONSerialization.data(withJSONObject: semantic, options: [.sortedKeys])) ?? Data()
-        if encoded != lastState {
+        let changed = encoded != lastState
+        if changed {
             let entry: [String: Any] = ["monotonic": now, "wallTime": Date().timeIntervalSince1970,
                                         "reason": reason, "state": current]
             if initial == nil { initial = entry }
@@ -433,7 +443,10 @@ final class MenuStateDiagnostics {
             total += 1
             lastState = encoded
         }
+        // Persist transitions immediately, but idle heartbeat only every 10 seconds.
+        guard storageSafe, changed || now - lastPersistedMonotonic >= 10 else { return }
         guard let data = try? JSONSerialization.data(withJSONObject: document(at: now), options: [.sortedKeys]), data.count <= 262144 else { return }
+        lastPersistedMonotonic = now
         let url = directory.appendingPathComponent(role + ".json")
         writeLock.lock()
         if writeInFlight { pendingWrite = (data, url); writeLock.unlock(); return }
@@ -454,20 +467,22 @@ final class MenuStateDiagnostics {
             do {
                 // Create with owner-only permissions BEFORE writing any bytes; rename atomically.
                 let temporary = url.appendingPathExtension("tmp")
-                let fd = Darwin.open(temporary.path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o600)
+                let fd = Darwin.open(temporary.path, O_WRONLY | O_CREAT | O_NOFOLLOW, 0o600)
                 guard fd >= 0 else { return }
-                guard fchmod(fd, 0o600) == 0 else { Darwin.close(fd); return }
+                guard flock(fd, LOCK_EX | LOCK_NB) == 0, fchmod(fd, 0o600) == 0,
+                      ftruncate(fd, 0) == 0 else { Darwin.close(fd); return }
                 let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
                 do {
                     try handle.write(contentsOf: data)
-                    try handle.close()
                     if rename(temporary.path, url.path) != 0 { unlink(temporary.path) }
+                    try handle.close()
                 } catch { try? handle.close(); unlink(temporary.path) }
             } catch { /* No arbitrary error/path strings are collected. */ }
         }
     }
 
     private func readPeer(_ url: URL) -> Data? {
+        guard storageSafe else { return nil }
         let fd = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard fd >= 0 else { return nil }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
@@ -550,7 +565,7 @@ final class MenuStateDiagnostics {
                     finishFreeze(own: own, peer: ["status": "ambiguous", "candidatePIDs": matches.map { $0.processIdentifier }], cutoff: cutoff); return
                 }
                 let observed = value["lastObservedMonotonic"] as? Double ?? 0
-                peer = ["status": kill(Int32(pid), 0) != 0 ? "exited" : (observed > cutoff ? "newerThanCutoff" : (cutoff - observed > 4 ? "stale" : "available")),
+                peer = ["status": kill(Int32(pid), 0) != 0 ? "exited" : (observed > cutoff ? "newerThanCutoff" : (cutoff - observed > 15 ? "stale" : "available")),
                         "ageSeconds": max(0, cutoff - observed), "document": value]
             } else { peer = ["status": "identityMismatch"] }
         }
