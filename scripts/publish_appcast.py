@@ -9,7 +9,7 @@ import release
 def qualified_appcast(directory, current_feed, current_commit, version):
     directory = Path(directory)
     records = {mode: json.loads((directory / mode / 'result.json').read_text())
-               for mode in ('legacy', 'current-host')}
+               for mode in ('legacy', 'current-host', 'previous-host')}
     for mode, record in records.items():
         if record.get('fixture_feed'):
             raise ValueError(f'{mode}: fixture feed evidence cannot be published')
@@ -17,14 +17,22 @@ def qualified_appcast(directory, current_feed, current_commit, version):
             raise ValueError(f'{mode}: installation qualification is incomplete')
         if record.get('after_signatures', {}).get('valid') is not True:
             raise ValueError(f'{mode}: installed signatures were not verified')
+    for mode in ('current-host', 'previous-host'):
+        automatic = records[mode]
+        if automatic.get('manual_reopen') is not False or not automatic.get('new_pid'):
+            raise ValueError(f'{mode}: automatic relaunch was not verified')
+        if not automatic.get('after_window', {}).get('windows'):
+            raise ValueError(f'{mode}: the relaunched app did not have a usable window')
+        if (automatic.get('base_feed_commit') != current_commit or
+                automatic.get('base_feed_sha256') != hashlib.sha256(current_feed).hexdigest()):
+            raise ValueError('the update feed changed after qualification; rerun the check')
     current = records['current-host']
-    if current.get('manual_reopen') is not False or not current.get('new_pid'):
-        raise ValueError('automatic relaunch was not verified')
-    if not current.get('after_window', {}).get('windows'):
-        raise ValueError('the relaunched app did not have a usable window')
-    if (current.get('base_feed_commit') != current_commit or
-            current.get('base_feed_sha256') != hashlib.sha256(current_feed).hexdigest()):
-        raise ValueError('the update feed changed after qualification; rerun the check')
+    previous = records['previous-host']
+    _, items = release._feed_entries(current_feed)
+    advertised = items[0].find(f'{{{release.SPARKLE_NS}}}shortVersionString') if items else None
+    if (advertised is None or previous.get('from') != advertised.text
+            or previous.get('before_signatures', {}).get('valid') is not True):
+        raise ValueError('the unmodified currently published host was not qualified')
     metadata = current['metadata']
     expected = release.ASSET_ROOT + f'v{version}/Jellyfin-Player-{version}-Apple-Silicon.zip'
     if metadata.get('asset_url') != expected:
@@ -34,6 +42,10 @@ def qualified_appcast(directory, current_feed, current_commit, version):
         raise ValueError('the tested appcast was modified')
     if candidate != release.update_feed(current_feed, metadata, 'v' + version):
         raise ValueError('appcast metadata differs from the qualified update')
+    if (previous.get('metadata') != metadata or
+            previous.get('appcast_sha256') != hashlib.sha256(candidate).hexdigest() or
+            (directory / 'previous-host/candidate-appcast.xml').read_bytes() != candidate):
+        raise ValueError('the previous host did not qualify this exact update feed')
     return candidate, metadata
 
 

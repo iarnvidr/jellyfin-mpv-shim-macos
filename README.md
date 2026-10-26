@@ -20,7 +20,7 @@ Double-click the playback title header, or choose Window → Zoom, to fill the a
 
 For quiet audio, including audio reduced during a FaceTime call, use **Audio → Volume → 200%**, the volume shortcuts, or the player sliders. All support 0–200%, with separate remembered volumes for music and video. **100% (Normal)** restores normal playback volume. Boost is manual and can distort loud recordings; it does not disable FaceTime's system audio reduction.
 
-Sparkle checks the repository's GitHub-hosted appcast and downloads complete app updates from GitHub Releases. The feed includes version 0.2.3, which passed native CI checks for legacy installation and current-host automatic installation and relaunch. Feed publication requires both checks to pass for each new release.
+Sparkle checks the repository's GitHub-hosted appcast and downloads complete app updates from GitHub Releases. The feed includes version 0.2.3, which passed native CI checks for legacy installation and current-host automatic installation and relaunch. Feed publication also requires an automatic upgrade from the unmodified version currently advertised by the production feed, retaining its saved profile. All three installation checks must pass before a new release reaches the feed.
 
 The app keeps Sparkle running to check automatically while Jellyfin Player is open. Settings → Updates controls Sparkle's saved preferences, shows the installed version and last check, and provides Check for Updates. Automatic checking is enabled by default; automatic downloading and installation is optional.
 
@@ -40,7 +40,7 @@ uv run --locked python work/package.py
 
 The build and packaging commands produce a local app/package; they do not establish interactive GUI qualification, notarization, or release readiness. Run the repository's checks with `uv run --locked python scripts/check.py`.
 
-To ship a preview, update `VERSION`, the project version in `pyproject.toml` and its matching `uv.lock` entry together, merge to `main`, and wait for its **macOS build** to succeed. Run **Prepare macOS release** on `main` with that build's run ID, the matching `vX.Y.Z` tag, and `publish=true`. It reuses the exact tested packages, signs the update ZIP, publishes a preview, then runs both installation checks before updating the feed. A failed qualification leaves the published preview available for manual download and leaves the feed unchanged; fix the qualification and run **Sparkle installation check** on `main` with `to_version=X.Y.Z` and `publish=true` to retry while `VERSION` still matches. Leave `publish=false` to prepare only a draft. Published tags and assets must not be replaced.
+To ship a preview, update `VERSION`, the project version in `pyproject.toml` and its matching `uv.lock` entry together, merge to `main`, and wait for its **macOS build** to succeed. Run **Prepare macOS release** on `main` with that build's run ID, the matching `vX.Y.Z` tag, and `publish=true`. It reuses the exact tested packages, signs the update ZIP, publishes a preview, then runs all three installation checks before updating the feed. A failed qualification leaves the published preview available for manual download and leaves the feed unchanged; fix the qualification and run **Sparkle installation check** on `main` with `to_version=X.Y.Z` and `publish=true` to retry while `VERSION` still matches. Leave `publish=false` to prepare only a draft. Published tags and assets must not be replaced.
 
 ## Repository
 
