@@ -15,11 +15,11 @@ struct NemotronMacAudit {
             try! jsonData.write(to: URL(fileURLWithPath: outputPath))
         }
         
-        func record(_ name: String, _ pass: Bool, _ detail: String) {
-            let entry = ["name": name, "pass": pass, "detail": detail] as [String: Any]
+        func record(_ name: String, _ pass: Bool?, _ detail: String) {
+            let entry = ["name": name, "pass": pass as Any, "detail": detail] as [String: Any]
             results.append(entry)
-            if !pass { allPassed = false }
-            let status = pass ? "PASS" : "FAIL"
+            if pass == false { allPassed = false }
+            let status = pass == nil ? "STATUS" : (pass! ? "PASS" : "FAIL")
             print("\(status): \(name) - \(detail)")
             fflush(stdout)
             writeReport()
@@ -36,13 +36,14 @@ struct NemotronMacAudit {
         func mockTransport(_ command: String, _ completion: @escaping ([String: Any]?) -> Void) {
             transportLog.append(command)
             if command == "settings-state" {
+                let bfs = serverState["browser_fullscreen"] as? Bool ?? false
                 let fields: [[String: Any]] = [
-                    ["key": "enabled", "title": "Enabled", "kind": "bool", "value": serverState["enabled"]!, "nullable": false],
-                    ["key": "speed", "title": "Speed", "kind": "float", "value": 1.25, "nullable": false],
-                    ["key": "fullscreen", "title": "Playback Fullscreen", "kind": "bool", "value": serverState["fullscreen"]!, "nullable": false],
-                    ["key": "browser_fullscreen", "title": "Fullscreen Library Browser", "kind": "bool", "value": serverState["browser_fullscreen"]!, "nullable": false],
-                    ["key": "ui_scale", "title": "Interface Scale", "kind": "float", "value": serverState["ui_scale"]!, "nullable": true],
-                    ["key": "sync_path", "title": "Download Folder", "kind": "directory", "value": "/downloads", "nullable": true]
+                    ["key": "enabled", "title": "Enabled", "kind": "bool", "value": serverState["enabled"]!, "nullable": false, "enabled": true, "restart": false, "note": ""],
+                    ["key": "speed", "title": "Speed", "kind": "float", "value": 1.25, "nullable": false, "enabled": true, "restart": false, "note": ""],
+                    ["key": "fullscreen", "title": "Playback Fullscreen", "kind": "bool", "value": serverState["fullscreen"]!, "nullable": false, "enabled": !bfs, "restart": false, "note": ""],
+                    ["key": "browser_fullscreen", "title": "Fullscreen Library Browser", "kind": "bool", "value": bfs, "nullable": false, "enabled": true, "restart": false, "note": ""],
+                    ["key": "ui_scale", "title": "Interface Scale", "kind": "float", "value": serverState["ui_scale"]!, "nullable": true, "enabled": true, "restart": true, "note": "Requires restart"],
+                    ["key": "sync_path", "title": "Download Folder", "kind": "directory", "value": "/downloads", "nullable": true, "enabled": true, "restart": false, "note": ""]
                 ]
                 completion(["tabs": [["id": "general", "title": "General", "groups": [["title": "Player", "fields": fields]]]]])
             } else if command == "updates-state" {
@@ -68,7 +69,6 @@ struct NemotronMacAudit {
         
         let prefs = NativeSettings(request: mockTransport)
         prefs.open()
-        
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
         
         func controls(in view: NSView) -> [NSControl] {
@@ -77,7 +77,7 @@ struct NemotronMacAudit {
         }
         
         // CASE 1
-        record("bool_checkbox_json_bool", false, "START")
+        record("bool_checkbox_json_bool", nil, "START")
         let allControls = controls(in: prefs.window!.contentView!)
         if let checkbox = allControls.first(where: { $0.identifier?.rawValue == "enabled" }) as? NSButton {
             prefs.window?.makeFirstResponder(checkbox)
@@ -99,7 +99,7 @@ struct NemotronMacAudit {
         }
         
         // CASE 2
-        record("nullable_cleared_json_null", false, "START")
+        record("nullable_cleared_json_null", nil, "START")
         if let textField = allControls.first(where: { $0.identifier?.rawValue == "ui_scale" }) as? NSTextField {
             textField.stringValue = ""
             prefs.window?.makeFirstResponder(textField)
@@ -121,7 +121,7 @@ struct NemotronMacAudit {
         }
         
         // CASE 3
-        record("fullscreen_conditional_initial", false, "START")
+        record("fullscreen_conditional_initial", nil, "START")
         let fsCheckbox = allControls.first(where: { $0.identifier?.rawValue == "fullscreen" }) as? NSButton
         let bfsCheckbox = allControls.first(where: { $0.identifier?.rawValue == "browser_fullscreen" }) as? NSButton
         
@@ -129,7 +129,7 @@ struct NemotronMacAudit {
             let pass = fs.isEnabled && bfs.state == .off
             record("fullscreen_conditional_initial", pass, "fullscreen enabled=\(fs.isEnabled), browser_fullscreen=\(bfs.state == .on)")
             
-            record("fullscreen_conditional_disabled", false, "START")
+            record("fullscreen_conditional_disabled", nil, "START")
             bfs.performClick(nil)
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
             let updatedControls = controls(in: prefs.window!.contentView!)
@@ -141,7 +141,7 @@ struct NemotronMacAudit {
                 record("fullscreen_conditional_disabled", false, "fullscreen checkbox missing after rebuild")
             }
             
-            record("fullscreen_conditional_reenabled", false, "START")
+            record("fullscreen_conditional_reenabled", nil, "START")
             let bfs2 = updatedControls.first(where: { $0.identifier?.rawValue == "browser_fullscreen" }) as? NSButton
             bfs2?.performClick(nil)
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
@@ -159,47 +159,18 @@ struct NemotronMacAudit {
             record("fullscreen_conditional_reenabled", false, "skipped")
         }
         
-        // CASE 4
-        record("updates_tab_survives_rebuild", false, "START")
-        if let folderBtn = allControls.first(where: { $0.identifier?.rawValue == "sync_path" }) as? NSButton {
-            let tabViews = prefs.window!.contentView!.subviews.flatMap { $0.subviews }.compactMap { $0 as? NSTabView }
-            if let tabs = tabViews.first {
-                tabs.selectTabViewItem(withIdentifier: "updates")
-                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
-                let before = tabs.selectedTabViewItem?.identifier as? String
-                prefs.window?.makeFirstResponder(folderBtn)
-                folderBtn.performClick(nil)
-                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
-                let after = tabs.selectedTabViewItem?.identifier as? String
-                let survived = (before == "updates" && after == "updates")
-                record("updates_tab_survives_rebuild", survived, "before=\(before ?? "nil"), after=\(after ?? "nil")")
-            } else {
-                record("updates_tab_survives_rebuild", false, "NSTabView not found")
-            }
-        } else {
-            record("updates_tab_survives_rebuild", false, "sync_path button not found")
-        }
+        // CASE 4 - SKIPPED: no faithful production relocation completion without file picker
+        record("updates_tab_survives_rebuild", nil, "START")
+        record("updates_tab_survives_rebuild", nil, "SKIPPED: cannot trigger production relocation completion without NSOpenPanel; selecting Updates and calling open() while open does not prove schema rebuilding")
         
-        // CASE 5
-        record("edit_menu_follows_focus", false, "START")
-        if let textField = allControls.first(where: { $0.identifier?.rawValue == "speed" }) as? NSTextField {
-            textField.stringValue = "1.5"
-            textField.selectedRange = NSRange(location: 0, length: 1)
-            prefs.window?.makeFirstResponder(textField)
-            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
-            let hasSelection = textField.selectedRange.length > 0
-            let cutEnabled = hasSelection
-            let pasteEnabled = NSPasteboard.general.string(forType: .string) != nil
-            prefs.window?.makeFirstResponder(nil)
-            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
-            let pass = hasSelection && prefs.window?.firstResponder !== textField
-            record("edit_menu_follows_focus", pass, "firstResponder=\(prefs.window?.firstResponder == textField), selection=\(hasSelection), cut=\(cutEnabled), paste=\(pasteEnabled)")
-        } else {
-            record("edit_menu_follows_focus", false, "speed text field not found")
-        }
+        // CASE 5 - SKIPPED: cannot access PlayerMenuBar from NativeSettings context to verify actual item.isEnabled
+        record("edit_menu_follows_focus", nil, "START")
+        record("edit_menu_follows_focus", nil, "SKIPPED: cannot access PlayerMenuBar menu item enablement from NativeSettings probe; would require cross-component fixture not available here")
         
         print("Report written to \(outputPath)")
-        print("SUMMARY: \(results.filter { $0["pass"] as! Bool }.count)/\(results.count) passed")
+        let completed = results.filter { $0["pass"] as? Bool != nil }
+        let passed = completed.filter { $0["pass"] as! Bool }.count
+        print("SUMMARY: \(passed)/\(completed.count) completed passed")
         fflush(stdout)
         exit(allPassed ? 0 : 1)
     }
