@@ -79,7 +79,9 @@ run('xcrun', 'swiftc', ROOT / 'work/NativeMenus.swift', ROOT / 'work/NativeSetti
 original = ROOT / 'release/Jellyfin Player.app'
 server = PlaybackServer(ROOT, OUT)
 summary = []
-for case in ['original-release', 'instrumented-accessory', 'instrumented-regular', 'stable-accessory']:
+cases = ['original-release'] if os.environ.get('JELLYFIN_MENU_PROOF_ORIGINAL_ONLY') == '1' else [
+    'original-release', 'instrumented-accessory', 'instrumented-regular', 'stable-accessory']
+for case in cases:
     app = OUT / case / 'Jellyfin Player.app'
     app.parent.mkdir()
     shutil.copytree(original, app, symlinks=True)
@@ -100,10 +102,15 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
         'browser_fullscreen': False, 'hide_title_bar': False,
         'mpv_ext_ipc': str(ipc), 'client_uuid': case,
     }))
+    mpv_options = []
+    if os.environ.get('JELLYFIN_MENU_PROOF_NATIVE_FS') == 'no':
+        mpv_options.append('native-fs=no')
     if case == 'stable-accessory':
         # Keep mpv's own VO initialization consistent with the hosted app's
         # policy, instead of default regular -> branding accessory transitions.
-        (config / 'mpv.conf').write_text('macos-app-activation-policy=accessory\n')
+        mpv_options.append('macos-app-activation-policy=accessory')
+    if mpv_options:
+        (config / 'mpv.conf').write_text('\n'.join(mpv_options) + '\n')
     native = OUT / case / 'native-menus'
     native.mkdir()
     env = dict(os.environ, JELLYFIN_PLAYER_MENU_DIAGNOSTICS=str(native),

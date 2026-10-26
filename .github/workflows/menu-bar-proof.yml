@@ -1,8 +1,14 @@
 name: Menu bar runtime proof
 on:
-  push:
-    branches: [diagnostics/menu-bar-proof]
   workflow_dispatch:
+    inputs:
+      original_only:
+        type: boolean
+        default: false
+      native_fs:
+        type: choice
+        options: ['yes', 'no']
+        default: 'yes'
 permissions:
   contents: read
 jobs:
@@ -37,7 +43,15 @@ jobs:
           hdiutil detach "$RUNNER_TEMP/jellyfin-volume"
           find server -type f \( -name jellyfin -o -name ffmpeg -o -name ffprobe \)
       - name: Capture actual server playback and controlled activation policy comparison
+        env:
+          JELLYFIN_MENU_PROOF_ORIGINAL_ONLY: ${{ inputs.original_only && '1' || '0' }}
+          JELLYFIN_MENU_PROOF_NATIVE_FS: ${{ inputs.native_fs || 'yes' }}
         run: python3 scripts/prove_menu_bar.py
+      - name: Read actual menu-strip screenshot text with Apple Vision
+        if: always()
+        run: |
+          xcrun swiftc tests/native/ReadMenuBar.swift -o /tmp/read-menu-bar -framework AppKit -framework Vision
+          find outputs/menu-bar-proof -name '*.png' -print0 | xargs -0 /tmp/read-menu-bar > outputs/menu-bar-proof/menu-pixels-ocr.jsonl
       - name: Preserve packaged core logs
         if: always()
         run: cp -R "$HOME/Library/Logs/Jellyfin MPV Shim" outputs/menu-bar-proof/core-logs || true
