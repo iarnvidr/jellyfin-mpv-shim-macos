@@ -12,7 +12,7 @@ jobs:
       matrix:
         os: [macos-15, macos-26]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Download exact published release
@@ -28,7 +28,15 @@ jobs:
           test -s zip-checksum
           shasum -a 256 --check zip-checksum
           ditto -x -k Jellyfin-Player-0.2.9-Apple-Silicon.zip .
-      - name: Capture release and controlled activation policy comparison
+      - name: Download isolated official Jellyfin server with bundled FFmpeg
+        run: |
+          curl --fail --location --retry 3 https://repo.jellyfin.org/files/server/macos/stable/v12.3/arm64/jellyfin_12.3-arm64.dmg --output "$RUNNER_TEMP/jellyfin.dmg"
+          hdiutil attach "$RUNNER_TEMP/jellyfin.dmg" -nobrowse -mountpoint "$RUNNER_TEMP/jellyfin-volume"
+          mkdir server
+          ditto "$RUNNER_TEMP/jellyfin-volume/Jellyfin.app" server/Jellyfin.app
+          hdiutil detach "$RUNNER_TEMP/jellyfin-volume"
+          find server -type f \( -name jellyfin -o -name ffmpeg -o -name ffprobe \)
+      - name: Capture actual server playback and controlled activation policy comparison
         run: python3 scripts/prove_menu_bar.py
       - name: Upload screenshots and runtime records
         if: always()

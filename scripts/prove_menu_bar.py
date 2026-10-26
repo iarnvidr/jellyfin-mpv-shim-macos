@@ -9,6 +9,7 @@ import signal
 import socket
 import subprocess
 import time
+from menu_bar_playback import PlaybackServer
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'outputs/menu-bar-proof'
@@ -64,6 +65,7 @@ run('xcrun', 'swiftc', ROOT / 'work/NativeMenus.swift', ROOT / 'work/NativeSetti
     '-o', OUT / 'native-scroll.dylib', '-framework', 'Cocoa', '-framework', 'MediaPlayer')
 
 original = ROOT / 'release/Jellyfin Player.app'
+server = PlaybackServer(ROOT, OUT)
 summary = []
 for case in ['original-release', 'instrumented-accessory', 'instrumented-regular']:
     app = OUT / case / 'Jellyfin Player.app'
@@ -79,9 +81,11 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
         run('codesign', '--force', '--deep', '--sign', '-', app)
     config = OUT / case / 'profile'
     config.mkdir()
+    ipc = Path('/tmp') / f'menu-proof-{os.getpid()}.sock'
     (config / 'conf.json').write_text(json.dumps({
         'mpv_ext': True, 'mpv_ext_path': None, 'fullscreen': False,
         'browser_fullscreen': False, 'hide_title_bar': False,
+        'mpv_ext_ipc': str(ipc), 'client_uuid': case,
     }))
     native = OUT / case / 'native-menus'
     native.mkdir()
@@ -90,7 +94,8 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
     if case == 'instrumented-regular':
         env['JELLYFIN_MENU_PROBE_REGULAR'] = '1'
     with (OUT / f'{case}-launcher.log').open('w') as log:
-        proc = subprocess.Popen([str(app / 'Contents/MacOS/Jellyfin Player'), '--config', str(config)],
+        proc = subprocess.Popen([str(app / 'Contents/MacOS/Jellyfin Player'), '--config', str(config),
+                                 '--server', server.url, '--username', server.user, '--password', server.password],
                                 env=env, stdout=log, stderr=subprocess.STDOUT)
         engine = None
         try:
@@ -112,6 +117,8 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             # 200 ms. Record that handoff instead of treating it as a failure.
             host_state = snapshot(case + '-host-active', proc.pid, require_frontmost=False)
             engine_state = snapshot(case + '-engine-active', engine)
+            server.start_playback(native, ipc, case)
+            snapshot(case + '-playing-windowed', engine)
             if case != 'original-release':
                 records = [json.loads(line) for line in (OUT / f'{case}-in-process.jsonl').read_text().splitlines()]
                 assert records, 'Instrumented library did not produce runtime records'
@@ -126,6 +133,45 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
                     raise RuntimeError(f'{case}: fullscreen action rejected: {result}')
                 time.sleep(4)
                 snapshot(case + '-' + phase, engine)
+            # Switching focus tests both host/engine handoff paths while media
+            # continues playing. Finder activation is recorded as its own case.
+            finder = json.loads(run('osascript', '-e', 'tell application "System Events" to get unix id of process "Finder"',
+                                    capture_output=True, text=True).stdout)
+            snapshot(case + '-finder-active', finder)
+            snapshot(case + '-playing-after-app-switch', engine)
+            for phase in ['zoom', 'restore']:
+                result = request(config, 'zoom')
+                if result.get('ok') is not True:
+                    raise RuntimeError(f'{case}: zoom action rejected: {result}')
+                time.sleep(2)
+                snapshot(case + '-playing-' + phase, engine)
+            result = request(config, 'minimize')
+            if result.get('ok') is not True:
+                raise RuntimeError(f'{case}: minimize action rejected: {result}')
+            time.sleep(2)
+            snapshot(case + '-playing-minimized')
+            # Activating the outer app exercises the actual reopen handshake.
+            snapshot(case + '-playing-reopen', proc.pid, require_frontmost=False)
+            snapshot(case + '-playing-reopened-engine', engine)
+            request(config, 'fullscreen')
+            time.sleep(3)
+            snapshot(case + '-playing-fullscreen-before-stop', engine)
+            model = request(config, 'state')
+            stop = model['now_playing']['commands']['stop']
+            assert request(config, stop).get('ok') is True
+            time.sleep(4)
+            snapshot(case + '-browser-after-fullscreen-stop', engine)
+            # Recreate playback, then close its fullscreen window and reopen
+            # through the real host activation path rather than setting flags.
+            server.start_playback(native, ipc, case + '-second')
+            if not server.mpv(ipc, ['get_property', 'fullscreen']):
+                request(config, 'fullscreen')
+                time.sleep(3)
+            assert request(config, 'close').get('ok') is True
+            time.sleep(3)
+            snapshot(case + '-closed-from-fullscreen')
+            snapshot(case + '-host-reopen-after-fullscreen-close', proc.pid, require_frontmost=False)
+            snapshot(case + '-engine-after-fullscreen-close', engine)
             summary.append({'case': case, 'hostPID': proc.pid, 'enginePID': engine,
                             'hostFrontmost': host_state['frontmost'], 'engineFrontmost': engine_state['frontmost']})
         finally:
@@ -141,5 +187,6 @@ for case in ['original-release', 'instrumented-accessory', 'instrumented-regular
             shutil.rmtree(app)
             time.sleep(2)
 snapshot('desktop-after')
+server.close()
 (OUT / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
 print('All three cases captured; compare screenshots with in-process records.', flush=True)
