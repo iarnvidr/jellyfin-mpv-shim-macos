@@ -508,16 +508,26 @@ final class MenuStateDiagnostics {
         if kind == "preference" {
             guard let type = object["type"] as? String, ["missing", "unsupported", "boolean", "number"].contains(type),
                   Set(object.keys) == ((type == "boolean" || type == "number") ? Set(["type", "value"]) : Set(["type"])) else { return false }
-            return object["value"] == nil || (object["value"] as? NSNumber)?.doubleValue.isFinite == true
+            guard let number = object["value"] as? NSNumber else { return object["value"] == nil }
+            return number.doubleValue.isFinite && ((CFGetTypeID(number) == CFBooleanGetTypeID()) == (type == "boolean"))
         }
         guard let allowed = keys[kind], Set(object.keys) == allowed else { return false }
         for (key, item) in object {
             let nested = ["identity": "identity", "initial": "entry", "state": "state", "preferences": "preferences", "engineProperties": "engineProperties", "_HIHideMenuBar": "preference", "AppleMenuBarVisibleInFullscreen": "preference"]
             if let child = nested[key] { if !validPeer(item, kind: child) { return false }; continue }
             if ["history", "windows", "screens"].contains(key) {
-                guard let list = item as? [Any], list.count <= 16 else { return false }
+                guard let list = item as? [Any], list.count <= (key == "history" ? 16 : 8) else { return false }
                 let child = key == "history" ? "entry" : (key == "windows" ? "window" : "screen")
                 if !list.allSatisfy({ validPeer($0, kind: child) }) { return false }; continue
+            }
+            let stringKeys: Set<String> = ["role", "sessionID", "reason", "status", "roleVersion", "osBuild"]
+            let arrayLengths = ["frame": 4, "visibleFrame": 4, "safeArea": 4, "mouse": 2, "osVersion": 3]
+            let booleanKeys: Set<String> = ["menuBarVisibleReported", "active", "hidden", "onActiveSpace", "visible", "key", "main", "miniaturized", "zoomed"]
+            if stringKeys.contains(key), !(item is String) { return false }
+            if let count = arrayLengths[key] {
+                guard let array = item as? [NSNumber], array.count == count,
+                      array.allSatisfy({ $0.doubleValue.isFinite && CFGetTypeID($0) != CFBooleanGetTypeID() }) else { return false }
+                continue
             }
             if let text = item as? String {
                 switch key {
@@ -528,9 +538,9 @@ final class MenuStateDiagnostics {
                 case "roleVersion", "osBuild": if text.count > 64 || !text.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }) { return false }
                 default: return false
                 }
-            } else if let number = item as? NSNumber { if !number.doubleValue.isFinite { return false } }
-            else if let array = item as? [NSNumber] { if array.count > 4 || !array.allSatisfy({ $0.doubleValue.isFinite }) { return false } }
-            else { return false }
+            } else if let number = item as? NSNumber {
+                if !number.doubleValue.isFinite || ((CFGetTypeID(number) == CFBooleanGetTypeID()) != booleanKeys.contains(key)) { return false }
+            } else { return false }
         }
         return true
     }
