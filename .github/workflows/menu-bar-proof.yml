@@ -11,7 +11,7 @@ on:
         default: 'yes'
       scenario:
         type: choice
-        options: ['default', 'launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus', 'transitions']
+        options: ['default', 'launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus', 'transitions', 'spaces']
         default: 'default'
       runner:
         type: choice

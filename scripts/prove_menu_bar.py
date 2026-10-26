@@ -19,6 +19,7 @@ from menu_bar_mechanisms import exercise_mechanism
 from menu_bar_ui_preferences import exercise_ui_preferences
 from menu_bar_browser import exercise_browser
 from menu_bar_transitions import exercise_transitions
+from menu_bar_spaces import exercise_spaces
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'outputs/menu-bar-proof'
@@ -117,6 +118,8 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'transitions':
     cases = ['original-transition-race', 'original-legacy-zoom',
              'observed-transition-race', 'observed-legacy-zoom',
              'original-transition-followup', 'observed-transition-followup']
+if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'spaces':
+    cases = ['original-spaces']
 requested_cases = os.environ.get('JELLYFIN_MENU_PROOF_CASE_FILTER', '')
 if requested_cases:
     selected = requested_cases.split(',')
@@ -155,7 +158,7 @@ for case in cases:
             shutil.copy2(icon, target)
         run('codesign', '--force', '--deep', '--sign', '-', app)
     original_case = case.startswith('original-')
-    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus', 'transitions')
+    launchservices = case != 'original-raw' and os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('launchservices', 'configurations', 'mechanisms', 'preferences-ui', 'browser-focus', 'transitions', 'spaces')
     if not original_case:
         # Core launches mpv with its own embedded library, not the outer
         # host's duplicate. Replace each copy and verify the probe ran below.
@@ -280,6 +283,11 @@ for case in cases:
                 # before the experiment; subsequent transition captures are passive.
                 snapshot(case + '-explicit-precondition-activation', engine)
             playing_state = snapshot(case + '-playing-windowed', engine, activate=False)
+            if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'spaces':
+                result = exercise_spaces(case, OUT, app, native, ipc, engine, proc.pid, server,
+                                         snapshot, config, request, PROBE)
+                summary.append({'case': case, 'spaces': result})
+                continue
             if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'transitions':
                 result = exercise_transitions(case, OUT, app, native, ipc, engine, server, snapshot,
                                               device_id, config, request)

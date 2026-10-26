@@ -3,6 +3,7 @@
 #import <ApplicationServices/ApplicationServices.h>
 #import <unistd.h>
 #import <objc/runtime.h>
+#import <dlfcn.h>
 
 static NSDictionary *appIdentity(NSRunningApplication *app) {
     if (!app) return @{};
@@ -64,12 +65,17 @@ static NSDictionary *desktopState(void) {
             && CGRectIntersectsRect(bounds, CGRectMake(display.origin.x, display.origin.y, display.size.width, 46)))
             [intersections addObject:window];
     }
+    int (*connectionID)(void) = dlsym(RTLD_DEFAULT, "CGSMainConnectionID");
+    CFArrayRef (*copySpaces)(int) = dlsym(RTLD_DEFAULT, "CGSCopyManagedDisplaySpaces");
+    NSArray *managedSpaces = connectionID && copySpaces ? CFBridgingRelease(copySpaces(connectionID())) : nil;
+    if (managedSpaces && ![NSJSONSerialization isValidJSONObject:managedSpaces]) managedSpaces = nil;
     return @{@"time": @(NSDate.date.timeIntervalSince1970),
         @"frontmost": appIdentity(NSWorkspace.sharedWorkspace.frontmostApplication),
         @"displayBounds": @{@"x": @(display.origin.x), @"y": @(display.origin.y), @"width": @(display.size.width), @"height": @(display.size.height)},
         @"pointerPosition": @{@"x": @(cursor.x), @"y": @(cursor.y)},
         @"jellyfinProcesses": apps, @"onScreenMenuWindows": bars ?: @[], @"jellyfinWindows": playerWindows,
         @"screens": screens, @"jellyfinAXWindows": axWindows, @"menuStripIntersectingWindows": intersections,
+        @"managedSpaces": managedSpaces ?: @[], @"managedSpacesAPIAvailable": @(connectionID && copySpaces),
         @"accessibilityTrusted": @(AXIsProcessTrusted()),
         @"screenRecordingAllowed": @(CGPreflightScreenCaptureAccess()),
         @"globalAutoHideMenuBar": [NSUserDefaults.standardUserDefaults objectForKey:@"_HIHideMenuBar"] ?: NSNull.null};
@@ -246,7 +252,16 @@ static int loginPlayer(pid_t pid, NSArray<NSString *> *values) {
 
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        if (argc >= 3 && strcmp(argv[1], "--controls") == 0) {
+        if (argc == 3 && strcmp(argv[1], "--watch-spaces") == 0) {
+            NSString *path = [NSString stringWithUTF8String:argv[2]];
+            [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification
+                object:nil queue:nil usingBlock:^(NSNotification *note) {
+                    NSMutableDictionary *record = [desktopState() mutableCopy]; record[@"event"] = note.name;
+                    emitRecord(record, path);
+                }];
+            emitRecord(desktopState(), path);
+            [NSRunLoop.currentRunLoop run];
+        } else if (argc >= 3 && strcmp(argv[1], "--controls") == 0) {
             AXUIElementRef root = AXUIElementCreateApplication(atoi(argv[2]));
             NSMutableArray *nodes = [NSMutableArray array]; axNodes(root, nodes, 0);
             NSMutableArray *controls = [NSMutableArray array];
@@ -278,14 +293,24 @@ int main(int argc, const char **argv) {
             emitRecord(@{@"clickX": @(point.x), @"clickY": @(point.y), @"mode": mode}, nil);
         } else if (argc == 3 && strcmp(argv[1], "--key") == 0) {
             NSString *key = [NSString stringWithUTF8String:argv[2]];
-            CGKeyCode code = [key isEqualToString:@"cmd-tab"] ? 48 : 4;
-            if (![@[@"cmd-tab", @"cmd-h"] containsObject:key]) return 2;
+            BOOL control = [key hasPrefix:@"ctrl-"];
+            CGEventFlags flags = control ? kCGEventFlagMaskControl : kCGEventFlagMaskCommand;
+            CGKeyCode modifierCode = control ? 59 : 55;
+            CGKeyCode code = [key isEqualToString:@"cmd-tab"] ? 48 : [key isEqualToString:@"ctrl-left"] ? 123
+                : [key isEqualToString:@"ctrl-right"] ? 124 : 4;
+            if (![@[@"cmd-tab", @"cmd-h", @"ctrl-left", @"ctrl-right"] containsObject:key]) return 2;
+            CGEventRef modifier = CGEventCreateKeyboardEvent(NULL, modifierCode, true);
+            CGEventSetType(modifier, kCGEventFlagsChanged); CGEventSetFlags(modifier, flags);
+            CGEventPost(kCGHIDEventTap, modifier); CFRelease(modifier);
             for (NSNumber *down in @[@YES, @NO]) {
                 CGEventRef event = CGEventCreateKeyboardEvent(NULL, code, down.boolValue);
-                CGEventSetFlags(event, kCGEventFlagMaskCommand); CGEventPost(kCGHIDEventTap, event); CFRelease(event);
+                CGEventSetFlags(event, flags); CGEventPost(kCGHIDEventTap, event); CFRelease(event);
                 [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
             }
-            emitRecord(@{@"key": key}, nil);
+            modifier = CGEventCreateKeyboardEvent(NULL, modifierCode, false);
+            CGEventSetType(modifier, kCGEventFlagsChanged); CGEventSetFlags(modifier, 0);
+            CGEventPost(kCGHIDEventTap, modifier); CFRelease(modifier);
+            emitRecord(@{@"key": key, @"sessionFlagsAfterRelease": @(CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState))}, nil);
         } else if (argc == 3 && strcmp(argv[1], "--menu-auto-hide") == 0) {
             return menuAutoHide([NSString stringWithUTF8String:argv[2]]);
         } else if (argc == 4 && strcmp(argv[1], "--pointer") == 0) {
