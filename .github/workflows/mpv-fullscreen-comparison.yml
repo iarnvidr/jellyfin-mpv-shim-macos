@@ -1,0 +1,41 @@
+name: Rebuild mpv fullscreen comparison
+
+on:
+  push:
+    branches: [diagnostics/mpv-fullscreen-owner-build]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install disposable diagnostic build dependencies
+        # Isolated source comparison only. Shipping acquisition/build stays offline.
+        run: |
+          if brew list ffmpeg >/dev/null 2>&1; then brew unlink ffmpeg; fi
+          if brew list openssl@1.1 >/dev/null 2>&1; then brew unlink openssl@1.1; fi
+          brew install -q autoconf automake curl pkgconf libtool python freetype fribidi little-cms2 \
+            luajit libass ffmpeg-full meson rust uchardet mujs libplacebo molten-vk vulkan-loader vulkan-headers \
+            libarchive libbluray libcaca libcdio-paranoia libdvdnav libdvdread libsixel rubberband vapoursynth zimg
+          brew link ffmpeg-full
+      - name: Build identical pinned original and patched engines
+        run: bash scripts/build_mpv_fullscreen_comparison.sh "$RUNNER_TEMP/mpv-fullscreen-comparison"
+      - name: Preserve complete bundles and provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpv-fullscreen-comparison-macos-15-arm
+          path: |
+            ${{ runner.temp }}/mpv-fullscreen-comparison/*.tar.gz
+            ${{ runner.temp }}/mpv-fullscreen-comparison/*.txt
+            ${{ runner.temp }}/mpv-fullscreen-comparison/*.json
+            ${{ runner.temp }}/mpv-fullscreen-comparison/*.log
+            ${{ runner.temp }}/mpv-fullscreen-comparison/*.patch
+            ${{ runner.temp }}/mpv-fullscreen-comparison/*.diff
+            ${{ runner.temp }}/mpv-fullscreen-comparison/*.sha256
+          if-no-files-found: warn
