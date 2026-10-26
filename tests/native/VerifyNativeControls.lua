@@ -10,7 +10,7 @@ local function verify()
     -- JSON is opaque to this unit harness; the packaged smoke also exercises
     -- the actual JSON/IPC and AppKit path.
     utils = {format_json=function(value) return value end, parse_json=function(value) return value end}
-    state = {scene={}, nodes={}, byid={}, tb={}, w=800, h=600, dd={}}
+    state = {scene={}, nodes={}, byid={}, tb={}, w=800, h=600, dd={}, active=true, phud={mode=false}}
     function tb_state(node)
         local value = state.tb[node.id]
         if not value then value={text=node.text or '', cursor=#(node.text or '')}; state.tb[node.id]=value end
@@ -122,6 +122,17 @@ local function verify()
     assert(state.menu_hidden)
     timers[1]()
     assert(#properties['user-data/jellyfin-accessibility'].nodes > 2, 'Controls did not recover after closing the gear menu')
+    assert(properties['user-data/jellyfin-accessibility'].browserContextEnabled, 'Browser context actions were disabled')
+    state.phud.mode = true
+    timers[1]()
+    assert(not properties['user-data/jellyfin-accessibility'].browserContextEnabled, 'Playback HUD enabled browser context actions')
+    state.active = false
+    state.phud.mode = false
+    timers[1]()
+    assert(not properties['user-data/jellyfin-accessibility'].browserContextEnabled, 'Yielded video enabled browser context actions')
+    state.active = true
+    timers[1]()
+    assert(properties['user-data/jellyfin-accessibility'].browserContextEnabled, 'Browser context actions did not recover after playback')
     print('Renderer: editing, protected fields, guarded actions, gear menu opening/selection and control recovery passed')
 end
 local ok, error = pcall(verify)

@@ -16,6 +16,7 @@ static dispatch_source_t retryTimer;
 static int socketFD = -1;
 static atomic_bool scrollEnabled = false;
 static atomic_bool textFocused = false;
+static atomic_bool browserContextEnabled = false;
 static NSString *socketPath;
 static NSMutableData *inputBuffer;
 static int gestureAxis = 0;
@@ -24,6 +25,19 @@ static NSDictionary *branding;
 extern void JellyfinInstallNativeMenus(void);
 extern void JellyfinClosePlayerWindow(void);
 static void writeCommand(NSArray *command);
+
+// mpv maps buttonNumber, not just NSEvent.type. Preserve the original
+// event's window/coordinates while changing the complete mouse-button identity.
+static NSEvent *browserControlClick(NSEvent *event) {
+    CGEventRef mouse = CGEventCreateCopy(event.CGEvent);
+    if (!mouse) return nil;
+    CGEventSetType(mouse, event.type == NSEventTypeLeftMouseDown ? kCGEventRightMouseDown : kCGEventRightMouseUp);
+    CGEventSetIntegerValueField(mouse, kCGMouseEventButtonNumber, kCGMouseButtonRight);
+    CGEventSetFlags(mouse, CGEventGetFlags(mouse) & ~kCGEventFlagMaskControl);
+    NSEvent *context = [NSEvent eventWithCGEvent:mouse];
+    CFRelease(mouse);
+    return context;
+}
 
 static char restoreFrameKey;
 static BOOL sameFrame(NSRect a, NSRect b) {
@@ -131,6 +145,7 @@ static JellyfinWindowControls *windowControls;
 static JellyfinAXView *accessibilityView;
 
 static void updateAccessibility(NSDictionary *model) {
+    atomic_store(&browserContextEnabled, [model[@"browserContextEnabled"] boolValue]);
     NSWindow *window = NSApp.mainWindow;
     if (!window) for (NSWindow *candidate in NSApp.windows) {
         if (candidate.canBecomeMainWindow) { window = candidate; break; }
@@ -246,6 +261,7 @@ static void applyPlayerBranding(void) {
 }
 
 static void disconnectSocket(void) {
+    atomic_store(&browserContextEnabled, false);
     atomic_store(&scrollEnabled, false);
     if (reader) { dispatch_source_cancel(reader); reader = nil; }
     if (socketFD >= 0) { close(socketFD); socketFD = -1; }
@@ -411,11 +427,18 @@ __attribute__((constructor)) static void installNativeScrolling(void) {
                 dispatch_async(ioQueue, ^{ writeCommand(@[@"script-message", @"jellyfin-native-edit", operation]); });
                 return nil;
             }];
-            // macOS uses the menu bar for these actions. Do not let either
-            // mpvtk or mpv's fallback bindings open a right-click menu.
+            // Browser cards and text fields retain their context actions.
+            // Playback keeps using the macOS menu bar, without a fallback menu.
             [NSEvent addLocalMonitorForEventsMatchingMask:(NSEventMaskRightMouseDown | NSEventMaskRightMouseUp | NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp) handler:^NSEvent *(NSEvent *event) {
-                if (event.type == NSEventTypeRightMouseDown || event.type == NSEventTypeRightMouseUp ||
-                    (event.modifierFlags & NSEventModifierFlagControl)) return nil;
+                BOOL right = event.type == NSEventTypeRightMouseDown || event.type == NSEventTypeRightMouseUp;
+                BOOL controlClick = (event.modifierFlags & NSEventModifierFlagControl) &&
+                    (event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeLeftMouseUp);
+                if (right || controlClick) {
+                    if (!atomic_load(&browserContextEnabled)) return nil;
+                    // mpv receives mouse buttons rather than AppKit context-menu
+                    // callbacks. Translate the standard Control-click gesture.
+                    if (controlClick) return browserControlClick(event);
+                }
                 // The engine's native title bar otherwise performs video-aspect
                 // zoom. Use the same fill/restore behavior as our drawn header.
                 if ((event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeLeftMouseUp) && event.clickCount == 2 && event.window &&

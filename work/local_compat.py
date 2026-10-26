@@ -38,7 +38,7 @@ def patch_renderer(text):
         ("local ok, cur = pcall(mp.get_property_bool, 'window-maximized')\n            if ok then\n                pcall(mp.set_property_bool, 'window-maximized', not cur)\n            end",
          "mp.set_property_native('user-data/jellyfin-window-action', {action='zoom', request=tostring(mp.get_time())})"),
         ('function() state.mouse.down = true; on_rclick() end',
-         'function() state.mouse.down = nil end'),
+         'function() state.mouse.down = nil; if state.active and not state.phud.mode then state.mouse.down = true; on_rclick() end end'),
         ('if scale <= 0 then scale = 1 end', 'if scale <= 0 then return end'),
         ('if wprev then\n        local slot',
          'if wprev and (state.force_snap or state.snapped) then\n        local slot'),
