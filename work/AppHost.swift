@@ -165,7 +165,9 @@ final class AppHost: NSObject, NSApplicationDelegate {
 struct JellyfinApplication {
     static func main() {
         let app = NSApplication.shared
-        app.setActivationPolicy(.regular)
+        traceMenuOwner(1, -1)
+        let policyResult = app.setActivationPolicy(.regular)
+        traceMenuOwner(2, policyResult ? 1 : 0)
         let host = AppHost()
         app.delegate = host
         withExtendedLifetime(host) { app.run() }

@@ -65,7 +65,10 @@ final class PlayerMenuBar: NSObject, NSMenuDelegate {
         // Never replace a menu under the pointer while the user is choosing.
         if tracking > 0 { pending = model; return }
         guard let data = try? JSONSerialization.data(withJSONObject: model, options: [.sortedKeys]) else { return }
-        if data == lastModel && NSApp.mainMenu === installedMenu { return }
+        if data == lastModel && NSApp.mainMenu === installedMenu {
+            MenuOwnerTrace.shared.recordGuardIfNeeded()
+            return
+        }
         lastModel = data
         let bar = NSMenu()
         let appItem = NSMenuItem()
@@ -98,8 +101,11 @@ final class PlayerMenuBar: NSObject, NSMenuDelegate {
             bar.addItem(item)
             if title == "Help" { NSApp.helpMenu = menu }
         }
+        traceMenuOwner(30, -1)
         NSApp.mainMenu = bar
         installedMenu = bar
+        MenuOwnerTrace.shared.installedMenu(bar)
+        traceMenuOwner(31, -1)
         if let path = ProcessInfo.processInfo.environment["JELLYFIN_PLAYER_MENU_DIAGNOSTICS"] {
             // The distribution smoke test inspects the actual installed AppKit
             // menus in both processes, without requiring Accessibility access.
@@ -164,6 +170,8 @@ final class PlayerMenuBar: NSObject, NSMenuDelegate {
     }
     func menuWillOpen(_ menu: NSMenu) {
         tracking += 1
+        MenuOwnerTrace.shared.tracking(tracking)
+        traceMenuOwner(32, -1)
         if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
             for item in menu.items {
                 guard let command = item.representedObject as? String, command.hasPrefix("edit-") else { continue }
@@ -178,6 +186,8 @@ final class PlayerMenuBar: NSObject, NSMenuDelegate {
     }
     func menuDidClose(_ menu: NSMenu) {
         tracking = max(0, tracking - 1)
+        MenuOwnerTrace.shared.tracking(tracking)
+        traceMenuOwner(33, -1)
         if tracking == 0, let model = pending { pending = nil; update(model) }
     }
 }
@@ -200,6 +210,7 @@ final class NativeMenuSession {
          updates: ((String) -> [String: Any]?)? = nil, quit: @escaping () -> Void) {
         self.lock = lock
         self.corePID = corePID
+        MenuOwnerTrace.shared.configure(corePID: corePID)
         self.isHost = isHost
         self.diagnostics = MenuStateDiagnostics(role: isHost ? "host" : "engine", corePID: corePID, sessionID: sessionID)
         self.updates = updates
@@ -303,12 +314,15 @@ private var playerMenuSession: NativeMenuSession?
 
 @_cdecl("JellyfinInstallNativeMenus")
 func installPlayerNativeMenus() {
-    guard playerMenuSession == nil else { return }
+    traceMenuOwner(20, -1)
+    guard playerMenuSession == nil else { traceMenuOwner(21, -1); return }
     let env = ProcessInfo.processInfo.environment
     guard let path = env["JELLYFIN_PLAYER_MENU_LOCK"],
           let pid = env["JELLYFIN_PLAYER_CORE_PID"].flatMap(Int.init),
           let host = env["JELLYFIN_PLAYER_HOST_PID"].flatMap(Int32.init), host > 1 else { return }
+    traceMenuOwner(22, -1)
     playerMenuSession = NativeMenuSession(lock: URL(fileURLWithPath: path), corePID: pid, isHost: false, sessionID: env["JELLYFIN_PLAYER_SESSION_ID"] ?? "missing") { kill(host, SIGTERM) }
+    traceMenuOwner(23, -1)
 }
 
 @_cdecl("JellyfinClosePlayerWindow")
@@ -640,3 +654,109 @@ final class MenuStateDiagnostics {
         NSPasteboard.general.setString(frozen, forType: .string)
     }
 }
+
+// Diagnostic CI only. Numeric, bounded, transition-only observations; no UI setters.
+private final class MenuOwnerTrace {
+    static let shared = MenuOwnerTrace()
+    private let path = ProcessInfo.processInfo.environment["JELLYFIN_MENU_OWNER_TRACE"]
+    private let traceLock = NSRecursiveLock()
+    private var started = false
+    private var records = 0
+    private var nextToken = 1
+    private let tokens = NSMapTable<NSMenu, NSNumber>(keyOptions: .weakMemory, valueOptions: .strongMemory)
+    private weak var installed: NSMenu?
+    private var generation = 0
+    private var lastInstall: Double = 0
+    private var depth = 0
+    private var corePID = 0
+    private var awaitingGuard = false
+    private var observations: [NSKeyValueObservation] = []
+    private var notifications: [NSObjectProtocol] = []
+
+    private func token(_ menu: NSMenu?) -> Int {
+        guard let menu = menu else { return 0 }
+        if let number = tokens.object(forKey: menu) { return number.intValue }
+        guard nextToken <= 128 else { return -1 }
+        let value = nextToken; nextToken += 1
+        tokens.setObject(NSNumber(value: value), forKey: menu)
+        return value
+    }
+    func configure(corePID: Int) { traceLock.lock(); defer { traceLock.unlock() }; self.corePID = corePID }
+    func installedMenu(_ menu: NSMenu) {
+        traceLock.lock(); defer { traceLock.unlock() }
+        installed = menu
+        generation += 1
+        lastInstall = ProcessInfo.processInfo.systemUptime
+    }
+    func tracking(_ value: Int) { traceLock.lock(); defer { traceLock.unlock() }; depth = value }
+    func recordGuardIfNeeded() {
+        traceLock.lock(); defer { traceLock.unlock() }
+        if awaitingGuard { awaitingGuard = false; record(34, result: -1) }
+    }
+    private func observe() {
+        guard !started, Thread.isMainThread, NSApp != nil else { return }
+        started = true
+        // KVO reports property notifications; before/after phase pairs below independently
+        // bracket our actual setter calls. No claim that KVO intercepts every external write.
+        observations.append(NSApp.observe(\.mainMenu, options: [.old, .new]) { [weak self] _, _ in self?.record(40, result: -1) })
+        observations.append(NSApp.observe(\.currentSystemPresentationOptions, options: [.new]) { [weak self] _, _ in self?.record(50, result: -1) })
+        notifications.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in self?.record(60, result: -1) })
+        for (name, phase) in [(NSApplication.didBecomeActiveNotification, 70), (NSApplication.didResignActiveNotification, 71),
+                              (NSWindow.didBecomeKeyNotification, 72), (NSWindow.didChangeScreenNotification, 73),
+                              (NSWindow.didChangeBackingPropertiesNotification, 74)] {
+            notifications.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.record(Int32(phase), result: -1) })
+        }
+    }
+    func record(_ phase: Int32, result: Int32) {
+        guard let path = path else { return }
+        traceLock.lock(); defer { traceLock.unlock() }
+        guard records < 512 else { return }
+        if phase == 12 { awaitingGuard = true }
+        // All production call sites already run on main. Off-main notifications are
+        // recorded as basic identity only, never deferred and mislabeled as original state.
+        let onMain = Thread.isMainThread
+        let env = ProcessInfo.processInfo.environment
+        let role = env["JELLYFIN_PLAYER_CORE_PID"] == nil ? 0 : 1
+        var row: [String: Any] = ["phase": phase, "result": result, "pid": getpid(), "role": role,
+            "corePID": corePID > 0 ? corePID : (Int(env["JELLYFIN_PLAYER_CORE_PID"] ?? "") ?? 0),
+            "hostPID": role == 0 ? Int(getpid()) : (Int(env["JELLYFIN_PLAYER_HOST_PID"] ?? "") ?? 0),
+            "monotonic": ProcessInfo.processInfo.systemUptime, "wallTime": Date().timeIntervalSince1970,
+            "mainThread": onMain ? 1 : 0, "appAvailable": NSApp != nil ? 1 : 0]
+        if onMain, NSApp != nil {
+            observe()
+            row.merge(["policy": NSApp.activationPolicy().rawValue, "active": NSApp.isActive ? 1 : 0,
+                "hidden": NSApp.isHidden ? 1 : 0, "activePID": NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0,
+                "ownOptions": NSApp.presentationOptions.rawValue, "effectiveOptions": NSApp.currentSystemPresentationOptions.rawValue,
+                "menuVisible": NSMenu.menuBarVisible() ? 1 : 0, "menuCount": NSApp.mainMenu?.numberOfItems ?? 0,
+                "menuToken": token(NSApp.mainMenu), "installedToken": token(installed),
+                "isCurrentInstalled": (installed != nil && NSApp.mainMenu === installed) ? 1 : 0,
+                "generation": generation, "lastInstallMonotonic": lastInstall, "trackingDepth": depth,
+                "mainScreenID": (NSScreen.main?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0,
+                "menuScreenID": (NSScreen.screens.first?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0,
+                "separateSpaces": NSScreen.screensHaveSeparateSpaces ? 1 : 0], uniquingKeysWith: { _, new in new })
+            if let w = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
+                row["window"] = [w.frame.origin.x, w.frame.origin.y, w.frame.width, w.frame.height]
+                row["windowStyle"] = w.styleMask.rawValue
+                row["windowCollection"] = w.collectionBehavior.rawValue
+                row["windowOcclusion"] = w.occlusionState.rawValue
+                row["windowOnActiveSpace"] = w.isOnActiveSpace ? 1 : 0
+                row["windowScreenID"] = (w.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
+            }
+        }
+        guard let encoded = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]) else { return }
+        records += 1
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let file = directory.appendingPathComponent("owner-\(role).jsonl")
+        let fd = Darwin.open(file.path, O_CREAT | O_APPEND | O_WRONLY | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { return }
+        defer { Darwin.close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_size + Int64(encoded.count) + 1 <= 1_048_576 else { return }
+        var data = encoded; data.append(10)
+        data.withUnsafeBytes { bytes in _ = Darwin.write(fd, bytes.baseAddress, bytes.count) }
+    }
+}
+
+@_cdecl("JellyfinTraceMenuOwner")
+func traceMenuOwner(_ phase: Int32, _ result: Int32) { MenuOwnerTrace.shared.record(phase, result: result) }

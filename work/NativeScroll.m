@@ -23,6 +23,7 @@ static int gestureAxis = 0;
 static NSTimeInterval lastScrollTime = 0;
 static NSDictionary *branding;
 extern void JellyfinInstallNativeMenus(void);
+extern void JellyfinTraceMenuOwner(int32_t phase, int32_t result);
 extern void JellyfinClosePlayerWindow(void);
 static void writeCommand(NSArray *command);
 
@@ -210,9 +211,12 @@ static NSData *iconPixels(NSImage *image) {
 }
 
 static void applyPlayerBranding(void) {
+    JellyfinTraceMenuOwner(10, -1);
     suppressEngineNowPlaying();
     if ([NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_HOSTED"] isEqualToString:@"1"]) {
-        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        JellyfinTraceMenuOwner(11, -1);
+        BOOL policyResult = [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        JellyfinTraceMenuOwner(12, policyResult ? 1 : 0);
     }
     NSBundle *bundle = NSBundle.mainBundle;
     NSString *iconPath = [bundle pathForResource:@"jellyfin" ofType:@"icns"];
@@ -257,7 +261,9 @@ static void applyPlayerBranding(void) {
                  @"iconMatchesJellyfin": @((BOOL)(iconError <= 2.0)),
                  @"engineNowPlayingSuppressed": @((BOOL)(method_getImplementation(class_getInstanceMethod(
                      object_getClass(MPNowPlayingInfoCenter.defaultCenter), @selector(setNowPlayingInfo:))) == (IMP)ignoreEngineNowPlayingInfo))};
+    JellyfinTraceMenuOwner(13, -1);
     JellyfinInstallNativeMenus();
+    JellyfinTraceMenuOwner(14, -1);
 }
 
 static void disconnectSocket(void) {
