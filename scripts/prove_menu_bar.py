@@ -121,6 +121,12 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'display-topology':
     run('xcrun', 'clang', '-dynamiclib', '-fobjc-arc', '-fblocks', ROOT / 'tests/native/ProbeMenuBar.m',
         '-o', OUT / 'read-only-menu-observer.dylib', '-framework', 'Cocoa', '-framework', 'ApplicationServices')
     run('codesign', '--force', '--sign', '-', OUT / 'read-only-menu-observer.dylib')
+    run('xcrun', 'swiftc', ROOT / 'tests/native/ReadMenuBar.swift', '-o', OUT / 'read-menu-pixels',
+        '-framework', 'AppKit', '-framework', 'Vision')
+    if os.environ.get('JELLYFIN_MENU_PROOF_POLICY_RECOVERY') == '1':
+        run('xcrun', 'clang', '-dynamiclib', '-fobjc-arc', '-fblocks', ROOT / 'tests/native/MenuPolicyIntervention.m',
+            '-o', OUT / 'menu-policy-intervention.dylib', '-framework', 'Cocoa')
+        run('codesign', '--force', '--sign', '-', OUT / 'menu-policy-intervention.dylib')
 requested_cases = os.environ.get('JELLYFIN_MENU_PROOF_CASE_FILTER', '')
 if requested_cases:
     selected = requested_cases.split(',')
@@ -215,6 +221,14 @@ for case in cases:
         (scripts / 'read_only_menu_observer.lua').write_text(
             'local ffi = require("ffi")\n_G.menu_observer = ffi.load(' + library + ')\n'
             'mp.set_property_native("user-data/menu-proof-observer-loaded", true)\n')
+        if os.environ.get('JELLYFIN_MENU_PROOF_POLICY_RECOVERY') == '1':
+            policy_library = json.dumps(str(OUT / 'menu-policy-intervention.dylib'))
+            (scripts / 'explicit_policy_intervention.lua').write_text(
+                'local ffi = require("ffi")\nffi.cdef[[void menuProofRequestRegular(void); int menuProofPolicyResult(void);]]\n'
+                'local lib = ffi.load(' + policy_library + ')\nlocal done=false\n'
+                'mp.register_script_message("menu-proof-regular-once", function()\n'
+                ' if done then return end\n done=true\n lib.menuProofRequestRegular()\n'
+                ' mp.add_timeout(1,function() mp.set_property_native("user-data/menu-proof-policy-result",lib.menuProofPolicyResult()) end)\nend)\n')
     native = OUT / case / 'native-menus'
     native.mkdir()
     env = dict(os.environ, JELLYFIN_PLAYER_MENU_DIAGNOSTICS=str(native),

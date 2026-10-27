@@ -20,6 +20,9 @@ on:
       vertical_topology:
         type: boolean
         default: false
+      policy_recovery:
+        type: boolean
+        default: false
       case_filter:
         type: string
         default: ''
@@ -128,12 +131,19 @@ jobs:
           JELLYFIN_MENU_PROOF_CASE_FILTER: ${{ inputs.case_filter }}
           JELLYFIN_MENU_REQUIRE_BROWSER_CONTEXT: ${{ inputs.require_browser_context && '1' || '0' }}
           JELLYFIN_MENU_PROOF_VERTICAL: ${{ inputs.vertical_topology && '1' || '0' }}
+          JELLYFIN_MENU_PROOF_POLICY_RECOVERY: ${{ inputs.policy_recovery && '1' || '0' }}
         run: python3 scripts/prove_menu_bar.py
       - name: Read actual menu-strip screenshot text with Apple Vision
         if: always()
+        env:
+          PIXELS_ONLY: ${{ matrix.os == 'xcode-27' && '1' || '0' }}
         run: |
           xcrun swiftc tests/native/ReadMenuBar.swift -o /tmp/read-menu-bar -framework AppKit -framework Vision
-          find outputs/menu-bar-proof -name '*.png' -print0 | xargs -0 /tmp/read-menu-bar > outputs/menu-bar-proof/menu-pixels-ocr.jsonl
+          if [ "$PIXELS_ONLY" = 1 ]; then
+            find outputs/menu-bar-proof -name '*.png' -print0 | xargs -0 /tmp/read-menu-bar --pixels-only > outputs/menu-bar-proof/menu-pixels-ocr.jsonl
+          else
+            find outputs/menu-bar-proof -name '*.png' -print0 | xargs -0 /tmp/read-menu-bar > outputs/menu-bar-proof/menu-pixels-ocr.jsonl
+          fi
       - name: Check screenshot regression for rebuilt engine comparison
         if: always() && inputs.scenario != 'browser-focus' && inputs.scenario != 'video-hud' && inputs.scenario != 'display-topology' && (inputs.engine_variant != 'release' || inputs.app_build_run_id != '')
         env:

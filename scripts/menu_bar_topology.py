@@ -103,7 +103,38 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
             capture('vertical-browser-reopen-fullscreen')
             assert request(config, 'fullscreen').get('ok') is True
             time.sleep(5)
-            capture('vertical-browser-windowed-return')
+            before_recovery = capture('vertical-browser-windowed-return')
+            if os.environ.get('JELLYFIN_MENU_PROOF_POLICY_RECOVERY') == '1':
+                # Require a fresh real pixel-positive BEFORE intervention.
+                def pixels(phase):
+                    path = out / f'{case}-{phase}-display-1.png'
+                    return json.loads(command(out / 'read-menu-pixels', '--pixels-only', path).stdout)
+                initial_pixels = pixels('vertical-browser-retina-primary')
+                failed_pixels = pixels('vertical-browser-windowed-return')
+                assert initial_pixels['menuBandNonBlack'] > 10000, initial_pixels
+                assert failed_pixels['menuBandNonBlack'] == 0, failed_pixels
+                assert before_recovery['mpvState']['fullscreen'] is False
+                time.sleep(4)
+                settled = capture('vertical-before-policy-recovery-settled')
+                assert pixels('vertical-before-policy-recovery-settled')['menuBandNonBlack'] == 0
+                assert settled['readOnlyAppKitObservation']['policy'] == 1
+                # SINGLE mutation: regular policy, same app/menu/window objects.
+                server.mpv(ipc, ['script-message', 'menu-proof-regular-once'])
+                time.sleep(2)
+                after = capture('vertical-after-policy-regular')
+                time.sleep(4)
+                later = capture('vertical-after-policy-regular-later')
+                return {'verticalGeometryQualified': True, 'capability': capability, 'publicApp': identity,
+                        'freshPixelPositiveBeforeIntervention': True,
+                        'policySetterResult': server.mpv(ipc, ['get_property', 'user-data/menu-proof-policy-result']),
+                        'policyAfter': after['readOnlyAppKitObservation']['policy'],
+                        'policyLater': later['readOnlyAppKitObservation']['policy'],
+                        'menuIdentityBefore': settled['readOnlyAppKitObservation']['mainMenuAddress'],
+                        'menuIdentityAfter': after['readOnlyAppKitObservation']['mainMenuAddress'],
+                        'pixelsAfter': pixels('vertical-after-policy-regular'),
+                        'pixelsLater': pixels('vertical-after-policy-regular-later'),
+                        'intervention': 'ExactlyoneexplicitmainthreadactivationPolicyregularsetter; no menu/fullscreen/presentationwrites',
+                        'status': 'Recovery comparator completed; inspect rawall-display pixels and state, no productionfix inferred'}
             move(0, -1100)
             capture('vertical-browser-upper-display')
             move(112, 73)

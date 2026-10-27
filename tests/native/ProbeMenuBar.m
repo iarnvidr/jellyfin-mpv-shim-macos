@@ -68,8 +68,21 @@ static NSDictionary *desktopState(void) {
     CFArrayRef (*copySpaces)(int) = dlsym(RTLD_DEFAULT, "CGSCopyManagedDisplaySpaces");
     NSArray *managedSpaces = connectionID && copySpaces ? CFBridgingRelease(copySpaces(connectionID())) : nil;
     if (managedSpaces && ![NSJSONSerialization isValidJSONObject:managedSpaces]) managedSpaces = nil;
+    CFArrayRef (*copyWindowSpaces)(int, int, CFArrayRef) = dlsym(RTLD_DEFAULT, "CGSCopySpacesForWindows");
+    if (!copyWindowSpaces) copyWindowSpaces = dlsym(RTLD_DEFAULT, "SLSCopySpacesForWindows");
+    NSMutableArray *memberships = [NSMutableArray array];
+    if (connectionID && copyWindowSpaces) for (NSDictionary *window in windows) {
+        NSNumber *number = window[(id)kCGWindowNumber];
+        if (!number) continue;
+        // Read-only private API selector0x7 = alluser/other/currentSpaces.
+        // Same signature/selector used in Hammerspoon/yabai windowSpaces.
+        NSArray *spaces = CFBridgingRelease(copyWindowSpaces(connectionID(), 0x7, (__bridge CFArrayRef)@[number]));
+        [memberships addObject:@{@"window": number, @"ownerPID": window[(id)kCGWindowOwnerPID] ?: @0,
+                                @"spaces": spaces ?: @[]}];
+    }
     return @{@"time": @(NSDate.date.timeIntervalSince1970),
         @"managedSpaces": managedSpaces ?: @[], @"managedSpacesAPIAvailable": @(connectionID && copySpaces),
+        @"windowSpaceMemberships": memberships, @"windowSpacesAPIAvailable": @(connectionID && copyWindowSpaces),
         @"frontmost": appIdentity(NSWorkspace.sharedWorkspace.frontmostApplication),
         @"displayBounds": @{@"x": @(display.origin.x), @"y": @(display.origin.y), @"width": @(display.size.width), @"height": @(display.size.height)},
         @"pointerPosition": @{@"x": @(cursor.x), @"y": @(cursor.y)},
@@ -393,6 +406,7 @@ __attribute__((constructor)) static void installMenuBarProbe(void) {
             record[@"presentationOptions"] = @(NSApp.presentationOptions);
             record[@"systemPresentationOptions"] = @(NSApp.currentSystemPresentationOptions);
             record[@"menus"] = [NSApp.mainMenu.itemArray valueForKey:@"title"] ?: @[];
+            record[@"mainMenuAddress"] = @((uintptr_t)(__bridge void *)NSApp.mainMenu);
             NSMutableArray *windows = [NSMutableArray array];
             for (NSWindow *window in NSApp.windows) {
                 [windows addObject:@{@"title": window.title ?: @"", @"visible": @(window.visible),
