@@ -9,3 +9,9 @@ __attribute__((visibility("default"))) void menuProofRequestRegular(void) {
     });
 }
 __attribute__((visibility("default"))) int menuProofPolicyResult(void) { return atomic_load(&result); }
+__attribute__((visibility("default"))) void menuProofReassignCurrentMenu(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{ NSApp.mainMenu = NSApp.mainMenu; });
+}
+__attribute__((visibility("default"))) void menuProofCopyCurrentMenu(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{ NSApp.mainMenu = [NSApp.mainMenu copy]; });
+}

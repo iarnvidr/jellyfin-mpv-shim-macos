@@ -132,7 +132,7 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
                         'policyLater': later['readOnlyAppKitObservation']['policy'],
                         'status': 'Single regularsetter BEFORE matchedFS/Finder/reopen/exit sequence; qualification depends on policy0remaining effective',
                         'warning': 'If branding reverts0→1 this doesnotqualify as stable-regularprevention'}
-            if os.environ.get('JELLYFIN_MENU_PROOF_POLICY_RECOVERY') == '1':
+            if os.environ.get('JELLYFIN_MENU_PROOF_POLICY_RECOVERY') == '1' or os.environ.get('JELLYFIN_MENU_PROOF_MENU_RECOVERY') == '1':
                 # Require a fresh real pixel-positive BEFORE intervention.
                 def pixels(phase):
                     path = out / f'{case}-{phase}-display-1.png'
@@ -146,6 +146,33 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
                 settled = capture('vertical-before-policy-recovery-settled')
                 assert pixels('vertical-before-policy-recovery-settled')['menuBandNonBlack'] == 0
                 assert settled['readOnlyAppKitObservation']['policy'] == 1
+                if os.environ.get('JELLYFIN_MENU_PROOF_MENU_RECOVERY') == '1':
+                    server.mpv(ipc, ['script-message', 'menu-proof-reassign-once'])
+                    time.sleep(2)
+                    same = capture('vertical-after-same-menu-reassign')
+                    time.sleep(4)
+                    same_later = capture('vertical-after-same-menu-reassign-later')
+                    assert same_later['readOnlyAppKitObservation']['policy'] == 1
+                    assert same_later['readOnlyAppKitObservation']['mainMenuAddress'] == settled['readOnlyAppKitObservation']['mainMenuAddress']
+                    same_pixels = pixels('vertical-after-same-menu-reassign-later')
+                    result = {'verticalGeometryQualified': True, 'capability': capability, 'publicApp': identity,
+                              'freshPixelPositiveBeforeIntervention': True, 'samePointerPixels': same_pixels,
+                              'samePointerPolicy': same_later['readOnlyAppKitObservation']['policy'],
+                              'menuIdentityBefore': settled['readOnlyAppKitObservation']['mainMenuAddress'],
+                              'menuIdentityAfterSamePointer': same_later['readOnlyAppKitObservation']['mainMenuAddress']}
+                    if same_pixels['menuBandNonBlack'] == 0:
+                        # Same still-failed state; one COPY-only assignment next.
+                        server.mpv(ipc, ['script-message', 'menu-proof-copy-once'])
+                        time.sleep(2)
+                        copied = capture('vertical-after-menu-copy')
+                        time.sleep(4)
+                        copied_later = capture('vertical-after-menu-copy-later')
+                        assert copied_later['readOnlyAppKitObservation']['policy'] == 1
+                        assert copied_later['readOnlyAppKitObservation']['mainMenuAddress'] != settled['readOnlyAppKitObservation']['mainMenuAddress']
+                        result.update(copyPixels=pixels('vertical-after-menu-copy-later'),
+                                      menuIdentityAfterCopy=copied_later['readOnlyAppKitObservation']['mainMenuAddress'])
+                    result['interventions'] = 'SamepointermainMenureassign only; IFstillblack copycurrentmainMenureassign only. Policy1retained, noactivation/fullscreen/presentationwrites.'
+                    return result
                 # SINGLE mutation: regular policy, same app/menu/window objects.
                 server.mpv(ipc, ['script-message', 'menu-proof-regular-once'])
                 time.sleep(2)

@@ -125,7 +125,7 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'display-topology':
         '-o', OUT / 'trace-menu-display', '-framework', 'Cocoa', '-framework', 'CoreGraphics')
     run('xcrun', 'swiftc', ROOT / 'tests/native/ReadMenuBar.swift', '-o', OUT / 'read-menu-pixels',
         '-framework', 'AppKit', '-framework', 'Vision')
-    if any(os.environ.get(k) == '1' for k in ('JELLYFIN_MENU_PROOF_POLICY_RECOVERY', 'JELLYFIN_MENU_PROOF_POLICY_PREVENTION')):
+    if any(os.environ.get(k) == '1' for k in ('JELLYFIN_MENU_PROOF_POLICY_RECOVERY', 'JELLYFIN_MENU_PROOF_POLICY_PREVENTION', 'JELLYFIN_MENU_PROOF_MENU_RECOVERY')):
         run('xcrun', 'clang', '-dynamiclib', '-fobjc-arc', '-fblocks', ROOT / 'tests/native/MenuPolicyIntervention.m',
             '-o', OUT / 'menu-policy-intervention.dylib', '-framework', 'Cocoa')
         run('codesign', '--force', '--sign', '-', OUT / 'menu-policy-intervention.dylib')
@@ -223,14 +223,16 @@ for case in cases:
         (scripts / 'read_only_menu_observer.lua').write_text(
             'local ffi = require("ffi")\n_G.menu_observer = ffi.load(' + library + ')\n'
             'mp.set_property_native("user-data/menu-proof-observer-loaded", true)\n')
-        if any(os.environ.get(k) == '1' for k in ('JELLYFIN_MENU_PROOF_POLICY_RECOVERY', 'JELLYFIN_MENU_PROOF_POLICY_PREVENTION')):
+        if any(os.environ.get(k) == '1' for k in ('JELLYFIN_MENU_PROOF_POLICY_RECOVERY', 'JELLYFIN_MENU_PROOF_POLICY_PREVENTION', 'JELLYFIN_MENU_PROOF_MENU_RECOVERY')):
             policy_library = json.dumps(str(OUT / 'menu-policy-intervention.dylib'))
             (scripts / 'explicit_policy_intervention.lua').write_text(
-                'local ffi = require("ffi")\nffi.cdef[[void menuProofRequestRegular(void); int menuProofPolicyResult(void);]]\n'
+                'local ffi = require("ffi")\nffi.cdef[[void menuProofRequestRegular(void); int menuProofPolicyResult(void); void menuProofReassignCurrentMenu(void); void menuProofCopyCurrentMenu(void);]]\n'
                 'local lib = ffi.load(' + policy_library + ')\nlocal done=false\n'
                 'mp.register_script_message("menu-proof-regular-once", function()\n'
                 ' if done then return end\n done=true\n lib.menuProofRequestRegular()\n'
-                ' mp.add_timeout(1,function() mp.set_property_native("user-data/menu-proof-policy-result",lib.menuProofPolicyResult()) end)\nend)\n')
+                ' mp.add_timeout(1,function() mp.set_property_native("user-data/menu-proof-policy-result",lib.menuProofPolicyResult()) end)\nend)\n'
+                'local reassigned=false\nmp.register_script_message("menu-proof-reassign-once",function() if reassigned then return end reassigned=true lib.menuProofReassignCurrentMenu() end)\n'
+                'local copied=false\nmp.register_script_message("menu-proof-copy-once",function() if copied then return end copied=true lib.menuProofCopyCurrentMenu() end)\n')
     native = OUT / case / 'native-menus'
     native.mkdir()
     env = dict(os.environ, JELLYFIN_PLAYER_MENU_DIAGNOSTICS=str(native),
