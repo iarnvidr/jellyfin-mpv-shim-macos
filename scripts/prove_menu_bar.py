@@ -121,9 +121,11 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'display-topology':
     run('xcrun', 'clang', '-dynamiclib', '-fobjc-arc', '-fblocks', ROOT / 'tests/native/ProbeMenuBar.m',
         '-o', OUT / 'read-only-menu-observer.dylib', '-framework', 'Cocoa', '-framework', 'ApplicationServices')
     run('codesign', '--force', '--sign', '-', OUT / 'read-only-menu-observer.dylib')
+    run('xcrun', 'clang', '-fobjc-arc', '-fblocks', ROOT / 'tests/native/TraceMenuDisplayState.m',
+        '-o', OUT / 'trace-menu-display', '-framework', 'Cocoa', '-framework', 'CoreGraphics')
     run('xcrun', 'swiftc', ROOT / 'tests/native/ReadMenuBar.swift', '-o', OUT / 'read-menu-pixels',
         '-framework', 'AppKit', '-framework', 'Vision')
-    if os.environ.get('JELLYFIN_MENU_PROOF_POLICY_RECOVERY') == '1':
+    if any(os.environ.get(k) == '1' for k in ('JELLYFIN_MENU_PROOF_POLICY_RECOVERY', 'JELLYFIN_MENU_PROOF_POLICY_PREVENTION')):
         run('xcrun', 'clang', '-dynamiclib', '-fobjc-arc', '-fblocks', ROOT / 'tests/native/MenuPolicyIntervention.m',
             '-o', OUT / 'menu-policy-intervention.dylib', '-framework', 'Cocoa')
         run('codesign', '--force', '--sign', '-', OUT / 'menu-policy-intervention.dylib')
@@ -221,7 +223,7 @@ for case in cases:
         (scripts / 'read_only_menu_observer.lua').write_text(
             'local ffi = require("ffi")\n_G.menu_observer = ffi.load(' + library + ')\n'
             'mp.set_property_native("user-data/menu-proof-observer-loaded", true)\n')
-        if os.environ.get('JELLYFIN_MENU_PROOF_POLICY_RECOVERY') == '1':
+        if any(os.environ.get(k) == '1' for k in ('JELLYFIN_MENU_PROOF_POLICY_RECOVERY', 'JELLYFIN_MENU_PROOF_POLICY_PREVENTION')):
             policy_library = json.dumps(str(OUT / 'menu-policy-intervention.dylib'))
             (scripts / 'explicit_policy_intervention.lua').write_text(
                 'local ffi = require("ffi")\nffi.cdef[[void menuProofRequestRegular(void); int menuProofPolicyResult(void);]]\n'

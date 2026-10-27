@@ -20,6 +20,7 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
     display_out = out / (case + '-display')
     display_out.mkdir()
     events = []
+    known_menu_window = None
 
     def command(*args):
         result = subprocess.run([str(a) for a in args], check=True, capture_output=True, text=True)
@@ -33,12 +34,25 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
         return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
     def capture(phase):
+        nonlocal known_menu_window
         name = case + '-' + phase
         state = snapshot(name, activate=False)
         records = observer()
         assert records, 'Read-only Lua-loaded AppKit observer did not record state'
         # No activation or pointer movement is performed by capture.
         state['readOnlyAppKitObservation'] = records[-1]
+        surface_helper = out / 'trace-menu-display'
+        if surface_helper.exists():
+            surface = json.loads(command(surface_helper, *([known_menu_window] if known_menu_window else [])).stdout)
+            if phase == 'vertical-browser-retina-primary':
+                primary = next(s for s in surface['displays'] if s['main'])
+                menu = next((w for w in primary['overlappingWindows'] if w['menuLevelMatch']), None)
+                assert menu, surface
+                known_menu_window = menu['number']
+                surface = json.loads(command(surface_helper, known_menu_window).stdout)
+            state['displaySurfaceObservation'] = surface
+        dock_pid = subprocess.check_output(['/usr/bin/pgrep', '-x', 'Dock'], text=True).strip()
+        state['dockAXControls'] = json.loads(command(probe, '--controls', dock_pid).stdout)
         state['publishedDiagnosticRecords'] = {}
         for role in ('host', 'engine'):
             path = Path.home() / 'Library/Logs/Jellyfin Player/menu-state' / (role + '.json')
@@ -92,6 +106,11 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
             time.sleep(2)
             move(112, 73)
             capture('vertical-browser-retina-primary')
+            prevention = os.environ.get('JELLYFIN_MENU_PROOF_POLICY_PREVENTION') == '1'
+            if prevention:
+                server.mpv(ipc, ['script-message', 'menu-proof-regular-once'])
+                time.sleep(2)
+                capture('vertical-regular-before-fullscreen')
             assert request(config, 'fullscreen').get('ok') is True
             time.sleep(5)
             capture('vertical-browser-native-fullscreen')
@@ -104,6 +123,15 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
             assert request(config, 'fullscreen').get('ok') is True
             time.sleep(5)
             before_recovery = capture('vertical-browser-windowed-return')
+            if prevention:
+                time.sleep(4)
+                later = capture('vertical-prevention-windowed-later')
+                return {'verticalGeometryQualified': True, 'capability': capability, 'publicApp': identity,
+                        'policySetterResult': server.mpv(ipc, ['get_property', 'user-data/menu-proof-policy-result']),
+                        'policyAfterOriginalSequence': before_recovery['readOnlyAppKitObservation']['policy'],
+                        'policyLater': later['readOnlyAppKitObservation']['policy'],
+                        'status': 'Single regularsetter BEFORE matchedFS/Finder/reopen/exit sequence; qualification depends on policy0remaining effective',
+                        'warning': 'If branding reverts0→1 this doesnotqualify as stable-regularprevention'}
             if os.environ.get('JELLYFIN_MENU_PROOF_POLICY_RECOVERY') == '1':
                 # Require a fresh real pixel-positive BEFORE intervention.
                 def pixels(phase):
