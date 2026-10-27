@@ -211,7 +211,8 @@ static NSData *iconPixels(NSImage *image) {
 
 static void applyPlayerBranding(void) {
     suppressEngineNowPlaying();
-    if ([NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_HOSTED"] isEqualToString:@"1"]) {
+    if ([NSProcessInfo.processInfo.environment[@"JELLYFIN_PLAYER_HOSTED"] isEqualToString:@"1"] &&
+        NSApp.activationPolicy != NSApplicationActivationPolicyAccessory) {
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
     }
     NSBundle *bundle = NSBundle.mainBundle;
