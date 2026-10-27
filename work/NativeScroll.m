@@ -352,6 +352,7 @@ static void connectSocket(void) {
                         }
                         [window deminiaturize:nil];
                         [window makeKeyAndOrderFront:nil];
+                        if (window) notifyAppHost(SIGUSR2);
                         acknowledgeWindow(window, request, 30);
                     }
                 });
@@ -384,13 +385,13 @@ static void connectSocket(void) {
 __attribute__((constructor)) static void installNativeScrolling(void) {
     @autoreleasepool {
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidHideNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { notifyAppHost(SIGUSR1); }];
-        [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidMiniaturizeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { notifyAppHost(SIGUSR1); }];
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidUnhideNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { notifyAppHost(SIGUSR2); }];
         [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidDeminiaturizeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { notifyAppHost(SIGUSR2); }];
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidFinishLaunchingNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { applyPlayerBranding(); }];
         [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { applyPlayerBranding(); }];
         [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidBecomeKeyNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
             NSWindow *window = note.object;
+            if (![window isKindOfClass:NSWindow.class] || !window.canBecomeMainWindow) return;
             if ([window.title isEqualToString:@"mpv"]) window.title = @"Jellyfin Player";
             if (!windowControls) windowControls = [JellyfinWindowControls new];
             NSButton *close = [window standardWindowButton:NSWindowCloseButton];

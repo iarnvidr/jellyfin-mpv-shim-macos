@@ -247,7 +247,8 @@ final class NativeMenuSession {
             guard let self = self else { return }
             self.polling = false
             if var result = result, result["ready"] as? Bool == true {
-                self.media?.update(result.removeValue(forKey: "now_playing") as? [String: Any] ?? [:])
+                let nowPlaying = result.removeValue(forKey: "now_playing") as? [String: Any] ?? [:]
+                self.media?.update(nowPlaying)
                 self.bar.update(result)
             }
             else { self.bar.unavailable() }
