@@ -16,6 +16,8 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
     assert len(archives) == 1, archives
     identity = {'archive': archives[0].name, 'sha256': hashlib.sha256(archives[0].read_bytes()).hexdigest(),
                 'bundle': str(app), 'version': plistlib.loads((app / 'Contents/Info.plist').read_bytes())['CFBundleShortVersionString']}
+    identity['source_build_run'] = os.environ.get('JELLYFIN_MENU_PROOF_APP_BUILD_RUN_ID') or None
+    identity['source'] = 'Unreleasedcandidatebuild' if identity['source_build_run'] else 'Publishedrelease'
     (out / (case + '-public-identity.json')).write_text(json.dumps(identity, indent=2))
     display_out = out / (case + '-display')
     display_out.mkdir()
@@ -190,6 +192,12 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
                         'pixelsLater': pixels('vertical-after-policy-regular-later'),
                         'intervention': 'ExactlyoneexplicitmainthreadactivationPolicyregularsetter; no menu/fullscreen/presentationwrites',
                         'status': 'Recovery comparator completed; inspect rawall-display pixels and state, no productionfix inferred'}
+            if os.environ.get('JELLYFIN_MENU_PROOF_STOP_AT_RETURN') == '1':
+                time.sleep(4)
+                final = capture('vertical-windowed-return-later')
+                return {'verticalGeometryQualified': True, 'capability': capability, 'appIdentity': identity,
+                        'finalAppKit': final['readOnlyAppKitObservation'],
+                        'status': 'Stopped aftermatchednativeFS/Finder/normalreopen/exit; no recoveryinterventions or laterupperdrag'}
             move(0, -1100)
             capture('vertical-browser-upper-display')
             move(112, 73)

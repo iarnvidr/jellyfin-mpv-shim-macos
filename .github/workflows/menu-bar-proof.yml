@@ -29,6 +29,9 @@ on:
       menu_recovery:
         type: boolean
         default: false
+      vertical_stop_at_return:
+        type: boolean
+        default: false
       case_filter:
         type: string
         default: ''
@@ -140,6 +143,8 @@ jobs:
           JELLYFIN_MENU_PROOF_POLICY_RECOVERY: ${{ inputs.policy_recovery && '1' || '0' }}
           JELLYFIN_MENU_PROOF_POLICY_PREVENTION: ${{ inputs.policy_prevention && '1' || '0' }}
           JELLYFIN_MENU_PROOF_MENU_RECOVERY: ${{ inputs.menu_recovery && '1' || '0' }}
+          JELLYFIN_MENU_PROOF_STOP_AT_RETURN: ${{ inputs.vertical_stop_at_return && '1' || '0' }}
+          JELLYFIN_MENU_PROOF_APP_BUILD_RUN_ID: ${{ inputs.app_build_run_id }}
         run: python3 scripts/prove_menu_bar.py
       - name: Read actual menu-strip screenshot text with Apple Vision
         if: always()

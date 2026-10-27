@@ -71,7 +71,11 @@ static NSDictionary *desktopState(void) {
     CFArrayRef (*copyWindowSpaces)(int, int, CFArrayRef) = dlsym(RTLD_DEFAULT, "CGSCopySpacesForWindows");
     if (!copyWindowSpaces) copyWindowSpaces = dlsym(RTLD_DEFAULT, "SLSCopySpacesForWindows");
     NSMutableArray *memberships = [NSMutableArray array];
-    if (connectionID && copyWindowSpaces) for (NSDictionary *window in windows) {
+    NSArray *membershipWindows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID));
+    if (connectionID && copyWindowSpaces) for (NSDictionary *window in membershipWindows) {
+        if (![window[(id)kCGWindowIsOnscreen] boolValue] &&
+            [window[(id)kCGWindowLayer] intValue] != CGWindowLevelForKey(kCGMainMenuWindowLevelKey) &&
+            ![playerPIDs containsObject:window[(id)kCGWindowOwnerPID]]) continue;
         NSNumber *number = window[(id)kCGWindowNumber];
         if (!number) continue;
         // Read-only private API selector0x7 = alluser/other/currentSpaces.
