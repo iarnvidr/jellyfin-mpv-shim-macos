@@ -1,6 +1,8 @@
 #import "../../work/NativeScroll.m"
 
 void JellyfinInstallNativeMenus(void) {}
+// Standalone Objective-C guard does not link the diagnostic Swift recorder.
+void JellyfinTraceMenuOwner(int32_t phase, int32_t result) {}
 static BOOL closeRequested;
 void JellyfinClosePlayerWindow(void) { closeRequested = YES; }
 
