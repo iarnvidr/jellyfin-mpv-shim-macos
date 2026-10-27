@@ -15,8 +15,11 @@ on:
         default: 'default'
       runner:
         type: choice
-        options: ['both', 'macos-26', 'macos-15']
+        options: ['both', 'macos-26', 'macos-15', 'xcode-27']
         default: 'both'
+      vertical_topology:
+        type: boolean
+        default: false
       case_filter:
         type: string
         default: ''
@@ -43,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.runner == 'macos-26' && '["macos-26"]' || inputs.runner == 'macos-15' && '["macos-15"]' || '["macos-15","macos-26"]') }}
+        os: ${{ fromJSON(inputs.runner == 'xcode-27' && '["xcode-27"]' || inputs.runner == 'macos-26' && '["macos-26"]' || inputs.runner == 'macos-15' && '["macos-15"]' || '["macos-15","macos-26"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
@@ -124,6 +127,7 @@ jobs:
           JELLYFIN_MENU_PROOF_SCENARIO: ${{ inputs.scenario || 'default' }}
           JELLYFIN_MENU_PROOF_CASE_FILTER: ${{ inputs.case_filter }}
           JELLYFIN_MENU_REQUIRE_BROWSER_CONTEXT: ${{ inputs.require_browser_context && '1' || '0' }}
+          JELLYFIN_MENU_PROOF_VERTICAL: ${{ inputs.vertical_topology && '1' || '0' }}
         run: python3 scripts/prove_menu_bar.py
       - name: Read actual menu-strip screenshot text with Apple Vision
         if: always()

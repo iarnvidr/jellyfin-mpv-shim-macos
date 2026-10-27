@@ -114,6 +114,8 @@ if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') in ('browser-focus', 'video-hu
     cases = ['original-browser']
 if os.environ.get('JELLYFIN_MENU_PROOF_SCENARIO') == 'display-topology':
     cases = ['original-topology-legacy', 'original-topology-native']
+    if os.environ.get('JELLYFIN_MENU_PROOF_VERTICAL') == '1':
+        cases = ['original-topology-native']
     run('xcrun', 'clang', '-fobjc-arc', '-fblocks', ROOT / 'tests/native/ProbeVirtualDisplay.m',
         '-o', OUT / 'probe-virtual-display', '-framework', 'Cocoa', '-framework', 'CoreGraphics')
     run('xcrun', 'clang', '-dynamiclib', '-fobjc-arc', '-fblocks', ROOT / 'tests/native/ProbeMenuBar.m',

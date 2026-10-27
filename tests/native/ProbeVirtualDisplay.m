@@ -26,7 +26,28 @@
 @end
 
 static CGVirtualDisplay *virtualDisplay;
+static CGVirtualDisplay *upperDisplay;
 static NSString *outputDirectory;
+
+static CGVirtualDisplay *createDisplay(unsigned int width, unsigned int height, BOOL retina, unsigned int serial) {
+    CGVirtualDisplayDescriptor *descriptor = [[NSClassFromString(@"CGVirtualDisplayDescriptor") alloc] init];
+    descriptor.queue = dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0);
+    descriptor.name = retina ? @"Jellyfin diagnostic Retina primary" : @"Jellyfin diagnostic upper external";
+    descriptor.maxPixelsWide = width * (retina ? 2 : 1); descriptor.maxPixelsHigh = height * (retina ? 2 : 1);
+    descriptor.sizeInMillimeters = CGSizeMake(345, 224);
+    descriptor.whitePoint = CGPointMake(.3125, .3291);
+    descriptor.redPrimary = CGPointMake(.6797, .3203);
+    descriptor.greenPrimary = CGPointMake(.2559, .6983);
+    descriptor.bluePrimary = CGPointMake(.1494, .0557);
+    descriptor.vendorID = 505; descriptor.productID = retina ? 101 : 102;
+    descriptor.serialNum = serial;
+    if ([descriptor respondsToSelector:@selector(setSerialNumber:)]) descriptor.serialNumber = serial;
+    CGVirtualDisplay *display = [[NSClassFromString(@"CGVirtualDisplay") alloc] initWithDescriptor:descriptor];
+    CGVirtualDisplaySettings *settings = [[NSClassFromString(@"CGVirtualDisplaySettings") alloc] init];
+    settings.hiDPI = retina ? 1 : 0; settings.rotation = 0;
+    settings.modes = @[[[NSClassFromString(@"CGVirtualDisplayMode") alloc] initWithWidth:width height:height refreshRate:60]];
+    return display && [display applySettings:settings] ? display : nil;
+}
 
 static void emit(NSString *phase, NSDictionary *details) {
     uint32_t ids[32], count = 0;
@@ -63,6 +84,8 @@ int main(int argc, const char **argv) {
     @autoreleasepool {
         if (argc < 2) return 2;
         outputDirectory = [NSString stringWithUTF8String:argv[1]];
+        BOOL vertical = argc > 3 && strcmp(argv[3], "vertical") == 0;
+        CGDirectDisplayID originalMain = CGMainDisplayID();
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
         emit(@"before", nil);
@@ -71,6 +94,26 @@ int main(int argc, const char **argv) {
             emit(@"after", @{@"status": @"api-unavailable", @"missingClass": name}); return 0;
         }
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 2), dispatch_get_main_queue(), ^{
+            if (vertical) {
+                virtualDisplay = createDisplay(1512, 982, YES, getpid());
+                upperDisplay = createDisplay(1920, 1200, NO, getpid() + 1);
+                emit(@"created", @{@"vertical": @YES});
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                    CGDisplayConfigRef configuration;
+                    CGError arranged = kCGErrorFailure;
+                    if (virtualDisplay && upperDisplay && CGBeginDisplayConfiguration(&configuration) == kCGErrorSuccess) {
+                        CGError first = CGConfigureDisplayOrigin(configuration, virtualDisplay.displayID, 0, 0);
+                        CGError second = CGConfigureDisplayOrigin(configuration, upperDisplay.displayID, -175, -1200);
+                        CGError mirror = CGConfigureDisplayMirrorOfDisplay(configuration, originalMain, virtualDisplay.displayID);
+                        arranged = CGCompleteDisplayConfiguration(configuration, kCGConfigureForSession);
+                        emit(@"arranged", @{@"primaryOriginResult": @(first), @"upperOriginResult": @(second), @"originalMirrorResult": @(mirror)});
+                    }
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                        emit(@"after", @{@"vertical": @YES, @"arrangeResult": @(arranged), @"status": @"vertical-creation-attempted"});
+                    });
+                });
+                return;
+            }
             CGVirtualDisplayDescriptor *descriptor = [[NSClassFromString(@"CGVirtualDisplayDescriptor") alloc] init];
             descriptor.queue = dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0);
             descriptor.name = @"Jellyfin diagnostic HiDPI";
@@ -106,13 +149,13 @@ int main(int argc, const char **argv) {
         });
         [NSTimer scheduledTimerWithTimeInterval:.2 repeats:YES block:^(NSTimer *timer) {
             if (virtualDisplay && [[NSFileManager defaultManager] fileExistsAtPath:[outputDirectory stringByAppendingPathComponent:@"remove-request"]]) {
-                virtualDisplay = nil;
+                upperDisplay = nil; virtualDisplay = nil;
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ emit(@"removed", nil); });
             }
         }];
         double duration = argc > 2 ? atof(argv[2]) : 30;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, MIN(duration, 900) * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            virtualDisplay = nil; [NSApp terminate:nil];
+            upperDisplay = nil; virtualDisplay = nil; [NSApp terminate:nil];
         });
         [NSApp run];
     }

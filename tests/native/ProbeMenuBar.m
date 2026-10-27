@@ -2,6 +2,7 @@
 #import <Cocoa/Cocoa.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <unistd.h>
+#import <dlfcn.h>
 
 static NSDictionary *appIdentity(NSRunningApplication *app) {
     if (!app) return @{};
@@ -63,7 +64,12 @@ static NSDictionary *desktopState(void) {
             && CGRectIntersectsRect(bounds, CGRectMake(display.origin.x, display.origin.y, display.size.width, 46)))
             [intersections addObject:window];
     }
+    int (*connectionID)(void) = dlsym(RTLD_DEFAULT, "CGSMainConnectionID");
+    CFArrayRef (*copySpaces)(int) = dlsym(RTLD_DEFAULT, "CGSCopyManagedDisplaySpaces");
+    NSArray *managedSpaces = connectionID && copySpaces ? CFBridgingRelease(copySpaces(connectionID())) : nil;
+    if (managedSpaces && ![NSJSONSerialization isValidJSONObject:managedSpaces]) managedSpaces = nil;
     return @{@"time": @(NSDate.date.timeIntervalSince1970),
+        @"managedSpaces": managedSpaces ?: @[], @"managedSpacesAPIAvailable": @(connectionID && copySpaces),
         @"frontmost": appIdentity(NSWorkspace.sharedWorkspace.frontmostApplication),
         @"displayBounds": @{@"x": @(display.origin.x), @"y": @(display.origin.y), @"width": @(display.size.width), @"height": @(display.size.height)},
         @"pointerPosition": @{@"x": @(cursor.x), @"y": @(cursor.y)},

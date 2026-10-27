@@ -5,6 +5,7 @@ import plistlib
 from pathlib import Path
 import subprocess
 import time
+import os
 from menu_bar_playback import wait_for
 
 
@@ -38,6 +39,11 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
         assert records, 'Read-only Lua-loaded AppKit observer did not record state'
         # No activation or pointer movement is performed by capture.
         state['readOnlyAppKitObservation'] = records[-1]
+        state['publishedDiagnosticRecords'] = {}
+        for role in ('host', 'engine'):
+            path = Path.home() / 'Library/Logs/Jellyfin Player/menu-state' / (role + '.json')
+            if path.exists():
+                state['publishedDiagnosticRecords'][role] = json.loads(path.read_text())
         (out / (name + '.json')).write_text(json.dumps(state, indent=2))
         for index, screen in enumerate(state['screens'], 1):
             command('/usr/sbin/screencapture', '-x', '-D', index, out / f'{name}-display-{index}.png')
@@ -60,13 +66,52 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
     capture('browser-before-second-display')
     helper = out / 'probe-virtual-display'
     log = (display_out / 'helper.log').open('w')
-    display = subprocess.Popen([str(helper), str(display_out), '900'], stdout=log, stderr=subprocess.STDOUT)
+    vertical = os.environ.get('JELLYFIN_MENU_PROOF_VERTICAL') == '1'
+    display = subprocess.Popen([str(helper), str(display_out), '900'] + (['vertical'] if vertical else []), stdout=log, stderr=subprocess.STDOUT)
     try:
         def created():
             path = display_out / 'after.json'
             return json.loads(path.read_text()) if path.exists() else None
         capability = wait_for('actual second display creation', created, seconds=25)
         assert capability['qualifiedSecondHiDPI'], capability
+        if vertical:
+            import re
+            def rect(value):
+                return [float(n) for n in re.findall(r'-?\d+(?:\.\d+)?', value)]
+            primary = next((s for s in capability['screens'] if rect(s['frame']) == [0, 0, 1512, 982] and s['scale'] == 2), None)
+            upper = next((s for s in capability['screens'] if rect(s['frame']) == [-175, 982, 1920, 1200] and s['scale'] == 1), None)
+            qualified = primary is not None and upper is not None and len(capability['screens']) == 2
+            capture('vertical-capability-readback')
+            if not qualified or not capability['displaysHaveSeparateSpaces']:
+                return {'verticalGeometryQualified': qualified, 'separateSpacesEffective': capability['displaysHaveSeparateSpaces'],
+                        'capability': capability, 'status': 'Stopped at capability; exact topology/separate Spaces unavailable'}
+            command('/usr/bin/open', display_out)
+            time.sleep(3)
+            capture('vertical-finder-control')
+            command('/usr/bin/open', '-a', app)
+            time.sleep(2)
+            move(112, 73)
+            capture('vertical-browser-retina-primary')
+            assert request(config, 'fullscreen').get('ok') is True
+            time.sleep(5)
+            capture('vertical-browser-native-fullscreen')
+            command('/usr/bin/open', '-a', 'Finder')
+            time.sleep(3)
+            capture('vertical-finder-after-fullscreen')
+            command('/usr/bin/open', '-a', app)
+            time.sleep(3)
+            capture('vertical-browser-reopen-fullscreen')
+            assert request(config, 'fullscreen').get('ok') is True
+            time.sleep(5)
+            capture('vertical-browser-windowed-return')
+            move(0, -1100)
+            capture('vertical-browser-upper-display')
+            move(112, 73)
+            final = capture('vertical-browser-retina-return')
+            return {'verticalGeometryQualified': True, 'capability': capability, 'publicApp': identity,
+                    'finalAppKit': final['readOnlyAppKitObservation'],
+                    'status': 'Completed browser-only native Space/layout transitions; inspect actual managedSpaceIDs and pixels',
+                    'limits': 'VirtualsafeArea0; physicalnotch/top32inset cannotmatch; own/effective sampled read-only'}
         screens = capability['screens']
         secondary = next(s for s in screens if s['scale'] == 2)
         # Obtain actual CG bounds, not Cocoa's bottom-left frame coordinates.
