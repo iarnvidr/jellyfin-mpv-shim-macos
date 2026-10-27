@@ -101,6 +101,11 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
             if not qualified or not capability['displaysHaveSeparateSpaces']:
                 return {'verticalGeometryQualified': qualified, 'separateSpacesEffective': capability['displaysHaveSeparateSpaces'],
                         'capability': capability, 'status': 'Stopped at capability; exact topology/separate Spaces unavailable'}
+            visibility_recovery = os.environ.get('JELLYFIN_MENU_PROOF_VISIBILITY_RECOVERY') == '1'
+            if visibility_recovery:
+                preference = command(out / 'read-menu-preference')
+                (out / (case + '-actual-settings-preference.json')).write_text(preference.stdout)
+                subprocess.run(['/usr/bin/killall', 'System Settings'], capture_output=True)
             command('/usr/bin/open', display_out)
             time.sleep(3)
             capture('vertical-finder-control')
@@ -134,7 +139,7 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
                         'policyLater': later['readOnlyAppKitObservation']['policy'],
                         'status': 'Single regularsetter BEFORE matchedFS/Finder/reopen/exit sequence; qualification depends on policy0remaining effective',
                         'warning': 'If branding reverts0→1 this doesnotqualify as stable-regularprevention'}
-            if os.environ.get('JELLYFIN_MENU_PROOF_POLICY_RECOVERY') == '1' or os.environ.get('JELLYFIN_MENU_PROOF_MENU_RECOVERY') == '1':
+            if os.environ.get('JELLYFIN_MENU_PROOF_POLICY_RECOVERY') == '1' or os.environ.get('JELLYFIN_MENU_PROOF_MENU_RECOVERY') == '1' or visibility_recovery:
                 # Require a fresh real pixel-positive BEFORE intervention.
                 def pixels(phase):
                     path = out / f'{case}-{phase}-display-1.png'
@@ -148,6 +153,31 @@ def exercise_topology(case, out, app, config, probe, engine, server, snapshot, r
                 settled = capture('vertical-before-policy-recovery-settled')
                 assert pixels('vertical-before-policy-recovery-settled')['menuBandNonBlack'] == 0
                 assert settled['readOnlyAppKitObservation']['policy'] == 1
+                if visibility_recovery:
+                    assert settled['readOnlyAppKitObservation']['presentationOptions'] == 0
+                    server.mpv(ipc, ['script-message', 'menu-proof-zero-once'])
+                    time.sleep(2)
+                    zero = capture('vertical-after-zero-reassert')
+                    time.sleep(4)
+                    zero_later = capture('vertical-after-zero-reassert-later')
+                    assert zero_later['readOnlyAppKitObservation']['policy'] == 1
+                    zero_pixels = pixels('vertical-after-zero-reassert-later')
+                    result = {'verticalGeometryQualified': True, 'capability': capability, 'publicApp': identity,
+                              'freshPixelPositiveBeforeIntervention': True,
+                              'zeroSetterAccepted': server.mpv(ipc, ['get_property', 'user-data/menu-proof-zero-result']),
+                              'zeroReassertPixels': zero_pixels,
+                              'zeroReassertAppKit': zero_later['readOnlyAppKitObservation']}
+                    if zero_pixels['menuBandNonBlack'] == 0:
+                        server.mpv(ipc, ['script-message', 'menu-proof-visible-once'])
+                        time.sleep(2)
+                        visible = capture('vertical-after-setMenuBarVisible')
+                        time.sleep(4)
+                        visible_later = capture('vertical-after-setMenuBarVisible-later')
+                        assert visible_later['readOnlyAppKitObservation']['policy'] == 1
+                        result.update(setMenuBarVisiblePixels=pixels('vertical-after-setMenuBarVisible-later'),
+                                      setMenuBarVisibleAppKit=visible_later['readOnlyAppKitObservation'])
+                    result['interventions'] = 'ReassigncurrentpresentationOptions only(already0); IFstillblack separatelypublicNSMenu.setMenuBarVisible(true). Noactivation/policy/fullscreenwrites. DiagnosticUIAPItestnotfix.'
+                    return result
                 if os.environ.get('JELLYFIN_MENU_PROOF_MENU_RECOVERY') == '1':
                     server.mpv(ipc, ['script-message', 'menu-proof-reassign-once'])
                     time.sleep(2)
