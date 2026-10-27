@@ -703,7 +703,9 @@ private final class MenuOwnerTrace {
         notifications.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in self?.record(60, result: -1) })
         for (name, phase) in [(NSApplication.didBecomeActiveNotification, 70), (NSApplication.didResignActiveNotification, 71),
                               (NSWindow.didBecomeKeyNotification, 72), (NSWindow.didChangeScreenNotification, 73),
-                              (NSWindow.didChangeBackingPropertiesNotification, 74)] {
+                              (NSWindow.didChangeBackingPropertiesNotification, 74),
+                              (NSWindow.willEnterFullScreenNotification, 80), (NSWindow.didEnterFullScreenNotification, 81),
+                              (NSWindow.willExitFullScreenNotification, 82), (NSWindow.didExitFullScreenNotification, 83)] {
             notifications.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.record(Int32(phase), result: -1) })
         }
     }
@@ -734,6 +736,25 @@ private final class MenuOwnerTrace {
                 "mainScreenID": (NSScreen.main?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0,
                 "menuScreenID": (NSScreen.screens.first?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0,
                 "separateSpaces": NSScreen.screensHaveSeparateSpaces ? 1 : 0], uniquingKeysWith: { _, new in new })
+            // Independent WindowServer window IDs distinguish per-display bar disappearance
+            // from a preserved process-local NSMenu. No names/titles are retained.
+            if let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] {
+                let levels = [Int(CGWindowLevelForKey(.mainMenuWindow)), Int(CGWindowLevelForKey(.statusWindow))]
+                var menuWindows: [[Double]] = []
+                var omitted = 0
+                for item in windows {
+                    guard let layer = item[kCGWindowLayer as String] as? Int, levels.contains(layer),
+                          let bounds = item[kCGWindowBounds as String] as? [String: Any],
+                          let x = bounds["X"] as? Double, let y = bounds["Y"] as? Double,
+                          let width = bounds["Width"] as? Double, let height = bounds["Height"] as? Double else { continue }
+                    if menuWindows.count == 32 { omitted += 1; continue }
+                    menuWindows.append([(item[kCGWindowNumber as String] as? NSNumber)?.doubleValue ?? 0,
+                        (item[kCGWindowOwnerPID as String] as? NSNumber)?.doubleValue ?? 0,
+                        Double(layer), x, y, width, height, (item[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 0])
+                }
+                row["menuWindows"] = menuWindows
+                row["menuWindowsOmitted"] = omitted
+            }
             if let w = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
                 row["window"] = [w.frame.origin.x, w.frame.origin.y, w.frame.width, w.frame.height]
                 row["windowStyle"] = w.styleMask.rawValue

@@ -6,6 +6,8 @@ Set `JELLYFIN_MENU_OWNER_TRACE` to a dedicated case directory in the actual host
 
 The trace starts before the host's regular-policy setter and before the engine's FIRST existing accessory-policy setter. Menu object identity is a bounded weak-map process-local token, not a pointer/address. `menuToken` is the current `NSApp.mainMenu`; `installedToken` is the last menu actually assigned by `PlayerMenuBar`. Generation increases only after our actual mainMenu assignment. These tokens can identify a 1→1 policy setter followed by unchanged menu identity and a skipped model/object guard. Tokens are not WindowServer menu-owner identity.
 
+Each main-thread row also records up to 32 actual on-screen WindowServer menu/status-level windows as numeric arrays `[windowNumber, ownerPID, layer, x, y, width, height, alpha]`. This distinguishes a preserved NSMenu token from an absent per-display menu window. Extra WindowServer reads perturb timing and do not identify which application supplied the menu content.
+
 Numeric phases:
 
 | Phase | Observation |
@@ -24,6 +26,7 @@ Numeric phases:
 | 60 | NSWorkspace active-Space-change notification |
 | 70 / 71 | Application did become / resign active |
 | 72 / 73 / 74 | Window became key / changed screen / changed backing properties |
+| 80 / 81 / 82 / 83 | Window will enter / did enter / will exit / did exit native fullscreen |
 
 `tests/native/TraceMenuDisplayState.m` is an independent read-only helper. Compile with `xcrun clang -fobjc-arc tests/native/TraceMenuDisplayState.m -o trace-menu-display -framework Cocoa -framework CoreGraphics`. Capture its stdout beside each passive image BEFORE interventions. It reports actual active CG display bounds and numeric window metadata intersecting each display's top 48 CG points, including unrelated covering windows. No window names, owner names, URLs, titles, or pixel data are read into its report. CG owner PID indicates the owner of the reported WindowServer window; it does not establish which application's menu content is selected.
 
