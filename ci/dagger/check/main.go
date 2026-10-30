@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"dagger/check/internal/dagger"
+	"dagger/jellyfin-ci/internal/dagger"
 )
 
 type JellyfinCi struct{}
