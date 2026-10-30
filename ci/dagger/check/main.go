@@ -7,7 +7,7 @@ import (
 	"dagger/check/internal/dagger"
 )
 
-type Jellyfin struct{}
+type JellyfinCi struct{}
 
 const (
 	pythonImage = "python:3.13.7-slim-bookworm@sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d"
@@ -15,7 +15,7 @@ const (
 )
 
 // Checks runs the locked Linux integration and unit suites in the project's Python environment.
-func (m *Jellyfin) Checks(ctx context.Context, source *dagger.Directory) (string, error) {
+func (m *JellyfinCi) Checks(ctx context.Context, source *dagger.Directory) (string, error) {
 	uv := dag.Container().From(uvImage)
 	c := dag.Container().From(pythonImage).
 		WithFile("/usr/local/bin/uv", uv.File("/uv")).
