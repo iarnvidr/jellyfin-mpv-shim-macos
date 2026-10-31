@@ -14,7 +14,7 @@ jobs:
   build:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
       - name: Verify Apple Silicon runner
@@ -25,7 +25,7 @@ jobs:
           /tmp/verify-native-menus
           xcrun clang -fobjc-arc tests/native/VerifyNativeControls.m -o /tmp/verify-native-controls -framework Cocoa -framework MediaPlayer
           /tmp/verify-native-controls
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version: '0.13.1'
           enable-cache: true
@@ -51,9 +51,12 @@ jobs:
           uv run --locked python work/package.py
       - name: Verify extracted DMG and update ZIP with native windows and playback
         run: uv run --locked python scripts/distribution_check.py
+      - name: Record native release candidate receipt
+        if: github.event_name == 'pull_request'
+        run: uv run --locked --no-sync python scripts/release_acceptance.py create-native --root "$GITHUB_WORKSPACE"
       - name: Upload native smoke evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Jellyfin-Player-macOS-smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: outputs/macos-smoke-evidence/**
@@ -61,7 +64,7 @@ jobs:
           compression-level: 0
       # Upload exactly the outputs from this single build/package invocation;
       # do not rebuild per artifact or silently omit audit/source evidence.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: Jellyfin-Player-macOS-Apple-Silicon-${{ github.run_id }}-${{ github.run_attempt }}
@@ -74,5 +77,6 @@ jobs:
             outputs/*-Bundle-Inventory.json
             outputs/*-Signatures.json
             outputs/SHA256SUMS
+            outputs/native-receipt.json
           if-no-files-found: error
           compression-level: 0

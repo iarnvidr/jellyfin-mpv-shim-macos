@@ -2,8 +2,8 @@ name: Prepare macOS release
 on:
   workflow_dispatch:
     inputs:
-      run_id:
-        description: Successful main macOS build run to publish without rebuilding
+      mapping_run_id:
+        description: Successful main acceptance mapping run for this exact merged tree
         required: true
         type: string
       preview_tag:
@@ -29,35 +29,24 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
-      RUN_ID: ${{ inputs.run_id }}
+      MAPPING_RUN_ID: ${{ inputs.mapping_run_id }}
       PREVIEW_TAG: ${{ inputs.preview_tag }}
       TRUSTED_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version: '0.13.1'
       - run: uv python install
       - name: Validate trusted build and artifact identity
         run: |
-          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$MAPPING_RUN_ID" =~ ^[0-9]+$ ]]
           uv run --locked --no-sync python scripts/release.py validate-tag "$PREVIEW_TAG"
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" > run.json
-          uv run --locked --no-sync python scripts/release.py validate-run run.json
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts" > artifacts.json
-          uv run --locked --no-sync python - <<'PY' > artifact-id.txt
-          import json, sys
-          sys.path.insert(0, 'scripts')
-          import release
-          run = json.load(open('run.json'))
-          name = f"Jellyfin-Player-macOS-Apple-Silicon-{run['id']}-{run['run_attempt']}"
-          print(release.find_run_artifact(json.load(open('artifacts.json')), name))
-          PY
+          uv run --locked --no-sync python scripts/release_acceptance.py retrieve \
+            --root "$GITHUB_WORKSPACE" --mapping-run-id "$MAPPING_RUN_ID" \
+            --expected-commit "$TRUSTED_SHA" --target "$GITHUB_WORKSPACE/artifacts"
       - name: Download and verify exact tested packages
         run: |
-          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/$(cat artifact-id.txt)/zip" > artifact.zip
-          mkdir artifacts
-          unzip -q artifact.zip -d artifacts
           uv run --locked --no-sync python scripts/release.py verify-artifacts artifacts --metadata "$PREVIEW_TAG" > verified.json
           test "$(git rev-parse HEAD)" = "$TRUSTED_SHA"
       - name: Verify downloaded DMG and update ZIP native signatures

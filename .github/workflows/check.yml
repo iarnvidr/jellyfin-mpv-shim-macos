@@ -9,7 +9,7 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
       - name: Linux integration checks
@@ -19,3 +19,14 @@ jobs:
           verb: call
           module: ./ci/dagger/check
           args: checks --source .
+      - name: Record Dagger check receipt
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/release_acceptance.py create-check --root "$GITHUB_WORKSPACE"
+      - name: Upload Dagger check receipt
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: jellyfin-check-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: check-candidate.json
+          if-no-files-found: error
+          retention-days: 90
