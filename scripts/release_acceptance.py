@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -116,8 +117,12 @@ def api(path, binary=False):
         "Authorization": "Bearer " + token,
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    with urllib.request.urlopen(request, timeout=60) as response:
-        data = response.read(MAX_BYTES + 1)
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            data = response.read(MAX_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        safe_path = urllib.parse.urlsplit(url).path
+        raise ValueError(f"GitHub API returned HTTP {exc.code} for {safe_path}") from exc
     if len(data) > MAX_BYTES:
         raise ValueError("GitHub response exceeded the bounded artifact size")
     return data if binary else json.loads(data)

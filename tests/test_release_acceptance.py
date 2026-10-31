@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 import zipfile
 
@@ -15,6 +16,16 @@ import release_acceptance as acceptance
 
 
 class ReleaseAcceptanceTests(unittest.TestCase):
+    def test_api_error_reports_path_without_query_credentials(self):
+        failure = urllib.error.HTTPError(
+            "https://api.github.com/repos/example/repo?token=secret", 401,
+            "unauthorized", {}, None)
+        with patch.dict(os.environ, {"GH_TOKEN": "dummy"}), \
+                patch.object(acceptance.urllib.request, "urlopen", side_effect=failure):
+            with self.assertRaisesRegex(ValueError, r"HTTP 401 for /repos/example/repo") as raised:
+                acceptance.api("https://api.github.com/repos/example/repo?token=secret")
+        self.assertNotIn("secret", str(raised.exception))
+
     def test_successful_merged_pr_run_can_have_empty_pull_request_association(self):
         run = {
             "id": 12, "run_attempt": 1, "path": acceptance.NATIVE_WORKFLOW,
