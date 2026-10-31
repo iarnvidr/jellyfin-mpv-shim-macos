@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -50,6 +51,36 @@ def output_names(value):
         f"Jellyfin-Player-{value}-Signatures.json",
         "SHA256SUMS",
     }
+
+
+class GitHubRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Keep GitHub API credentials on the GitHub host during artifact redirects."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        source = urllib.parse.urlsplit(req.full_url)
+        target = urllib.parse.urlsplit(newurl)
+        if req.get_method() != "GET" or target.scheme != "https" or target.username or target.password:
+            raise ValueError("refusing unsafe GitHub artifact redirect")
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and source.netloc != target.netloc:
+            for header_set in (redirected.headers, redirected.unredirected_hdrs):
+                for name in list(header_set):
+                    if name.lower() in {"authorization", "proxy-authorization"}:
+                        del header_set[name]
+        return redirected
+
+
+def open_github_request(request, timeout):
+    parsed = urllib.parse.urlsplit(request.full_url)
+    if (request.get_method() != "GET" or parsed.scheme != "https" or parsed.netloc != "api.github.com"
+            or parsed.username or parsed.password):
+        raise ValueError("refusing unsafe GitHub request")
+    try:
+        return urllib.request.build_opener(GitHubRedirectHandler()).open(request, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        failed = urllib.parse.urlsplit(exc.url or request.full_url)
+        safe_location = failed.netloc + failed.path
+        raise ValueError(f"GitHub request returned HTTP {exc.code} for {safe_location}") from exc
 
 
 def event(root):
@@ -111,12 +142,14 @@ def api(path, binary=False):
     if not token:
         raise ValueError("GH_TOKEN is required for trusted release artifact lookup")
     url = path if path.startswith("https://") else "https://api.github.com/" + path
+    if urllib.parse.urlsplit(url).scheme != "https":
+        raise ValueError("GitHub API requests must use HTTPS")
     request = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json",
         "Authorization": "Bearer " + token,
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    with urllib.request.urlopen(request, timeout=60) as response:
+    with open_github_request(request, timeout=60) as response:
         data = response.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
         raise ValueError("GitHub response exceeded the bounded artifact size")

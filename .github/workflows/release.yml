@@ -26,7 +26,9 @@ jobs:
     environment: preview-release
     permissions:
       actions: read
+      checks: read
       contents: write
+      pull-requests: read
     env:
       GH_TOKEN: ${{ github.token }}
       MAPPING_RUN_ID: ${{ inputs.mapping_run_id }}

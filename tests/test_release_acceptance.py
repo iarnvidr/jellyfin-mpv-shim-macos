@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 import zipfile
 
@@ -15,6 +16,33 @@ import release_acceptance as acceptance
 
 
 class ReleaseAcceptanceTests(unittest.TestCase):
+    def test_api_error_reports_path_without_query_credentials(self):
+        failure = urllib.error.HTTPError(
+            "https://blob.example.net/artifact?token=secret", 401,
+            "unauthorized", {}, io.BytesIO())
+        with patch.dict(os.environ, {"GH_TOKEN": "dummy"}), \
+                patch.object(acceptance.urllib.request, "build_opener", side_effect=failure):
+            with self.assertRaisesRegex(ValueError, r"HTTP 401 for blob.example.net/artifact") as raised:
+                acceptance.api("https://api.github.com/repos/example/repo?token=secret")
+        self.assertNotIn("secret", str(raised.exception))
+
+    def test_artifact_redirect_drops_github_authorization_on_host_change(self):
+        handler = acceptance.GitHubRedirectHandler()
+        request = acceptance.urllib.request.Request(
+            "https://api.github.com/repos/example/repo",
+            headers={"Authorization": "Bearer secret", "Proxy-Authorization": "Basic secret"})
+        redirected = handler.redirect_request(
+            request, None, 302, "Found", {}, "https://blob.example.net/artifact?token=secret")
+        self.assertIsNotNone(redirected)
+        self.assertIsNone(redirected.get_header("Authorization"))
+        self.assertIsNone(redirected.get_header("Proxy-Authorization"))
+        self.assertIn("token=secret", redirected.full_url)
+
+    def test_open_request_requires_github_api_https_get(self):
+        unsafe = acceptance.urllib.request.Request("https://example.net/path")
+        with self.assertRaisesRegex(ValueError, "unsafe"):
+            acceptance.open_github_request(unsafe, timeout=1)
+
     def test_successful_merged_pr_run_can_have_empty_pull_request_association(self):
         run = {
             "id": 12, "run_attempt": 1, "path": acceptance.NATIVE_WORKFLOW,
