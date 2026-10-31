@@ -53,6 +53,30 @@ def output_names(value):
     }
 
 
+class GitHubRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Keep GitHub API credentials on the GitHub host during artifact redirects."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        source = urllib.parse.urlsplit(req.full_url)
+        target = urllib.parse.urlsplit(newurl)
+        if req.get_method() != "GET" or target.scheme != "https" or target.username or target.password:
+            raise ValueError("refusing unsafe GitHub artifact redirect")
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and source.netloc != target.netloc:
+            redirected.remove_header("Authorization")
+            redirected.remove_header("Proxy-Authorization")
+        return redirected
+
+
+def open_github_request(request, timeout):
+    try:
+        return urllib.request.build_opener(GitHubRedirectHandler()).open(request, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        failed = urllib.parse.urlsplit(exc.url or request.full_url)
+        safe_location = failed.netloc + failed.path
+        raise ValueError(f"GitHub request returned HTTP {exc.code} for {safe_location}") from exc
+
+
 def event(root):
     return json.loads((root / os.environ["GITHUB_EVENT_PATH"]).read_text())
 
@@ -112,17 +136,15 @@ def api(path, binary=False):
     if not token:
         raise ValueError("GH_TOKEN is required for trusted release artifact lookup")
     url = path if path.startswith("https://") else "https://api.github.com/" + path
+    if urllib.parse.urlsplit(url).scheme != "https":
+        raise ValueError("GitHub API requests must use HTTPS")
     request = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json",
         "Authorization": "Bearer " + token,
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            data = response.read(MAX_BYTES + 1)
-    except urllib.error.HTTPError as exc:
-        safe_path = urllib.parse.urlsplit(url).path
-        raise ValueError(f"GitHub API returned HTTP {exc.code} for {safe_path}") from exc
+    with open_github_request(request, timeout=60) as response:
+        data = response.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
         raise ValueError("GitHub response exceeded the bounded artifact size")
     return data if binary else json.loads(data)
