@@ -1,10 +1,8 @@
 name: macOS build
 on:
+  # Manual operator builds remain available; main releases consume accepted PR artifacts.
   workflow_dispatch:
   pull_request:
-  # release.yml explicitly consumes a successful main build by run ID.
-  push:
-    branches: [main]
 permissions:
   contents: read
 concurrency:

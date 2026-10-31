@@ -165,7 +165,9 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         self.assertIn("mapping_run_id:", release_workflow)
         self.assertIn("--mapping-run-id \"$MAPPING_RUN_ID\"", release_workflow)
         self.assertNotIn("validate-run", release_workflow)
-        self.assertIn("branches: [main]", native_workflow)
+        self.assertIn("workflow_dispatch:", native_workflow)
+        self.assertIn("pull_request:", native_workflow)
+        self.assertNotIn("push:\n    branches: [main]", native_workflow)
 
     def test_mapping_requires_successful_main_run_and_attempt_specific_artifact(self):
         accepted = {
