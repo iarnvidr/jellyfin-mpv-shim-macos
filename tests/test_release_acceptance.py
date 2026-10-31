@@ -29,12 +29,19 @@ class ReleaseAcceptanceTests(unittest.TestCase):
     def test_artifact_redirect_drops_github_authorization_on_host_change(self):
         handler = acceptance.GitHubRedirectHandler()
         request = acceptance.urllib.request.Request(
-            "https://api.github.com/repos/example/repo", headers={"Authorization": "Bearer secret"})
+            "https://api.github.com/repos/example/repo",
+            headers={"Authorization": "Bearer secret", "Proxy-Authorization": "Basic secret"})
         redirected = handler.redirect_request(
             request, None, 302, "Found", {}, "https://blob.example.net/artifact?token=secret")
         self.assertIsNotNone(redirected)
         self.assertIsNone(redirected.get_header("Authorization"))
+        self.assertIsNone(redirected.get_header("Proxy-Authorization"))
         self.assertIn("token=secret", redirected.full_url)
+
+    def test_open_request_requires_github_api_https_get(self):
+        unsafe = acceptance.urllib.request.Request("https://example.net/path")
+        with self.assertRaisesRegex(ValueError, "unsafe"):
+            acceptance.open_github_request(unsafe, timeout=1)
 
     def test_successful_merged_pr_run_can_have_empty_pull_request_association(self):
         run = {

@@ -63,12 +63,18 @@ class GitHubRedirectHandler(urllib.request.HTTPRedirectHandler):
             raise ValueError("refusing unsafe GitHub artifact redirect")
         redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
         if redirected is not None and source.netloc != target.netloc:
-            redirected.remove_header("Authorization")
-            redirected.remove_header("Proxy-Authorization")
+            for header_set in (redirected.headers, redirected.unredirected_hdrs):
+                for name in list(header_set):
+                    if name.lower() in {"authorization", "proxy-authorization"}:
+                        del header_set[name]
         return redirected
 
 
 def open_github_request(request, timeout):
+    parsed = urllib.parse.urlsplit(request.full_url)
+    if (request.get_method() != "GET" or parsed.scheme != "https" or parsed.netloc != "api.github.com"
+            or parsed.username or parsed.password):
+        raise ValueError("refusing unsafe GitHub request")
     try:
         return urllib.request.build_opener(GitHubRedirectHandler()).open(request, timeout=timeout)
     except urllib.error.HTTPError as exc:
