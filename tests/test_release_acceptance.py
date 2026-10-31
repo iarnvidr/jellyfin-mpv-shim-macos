@@ -15,6 +15,18 @@ import release_acceptance as acceptance
 
 
 class ReleaseAcceptanceTests(unittest.TestCase):
+    def test_successful_merged_pr_run_can_have_empty_pull_request_association(self):
+        run = {
+            "id": 12, "run_attempt": 1, "path": acceptance.NATIVE_WORKFLOW,
+            "event": "pull_request", "conclusion": "success", "head_sha": "b" * 40,
+            "repository": {"full_name": acceptance.REPOSITORY},
+            "head_repository": {"full_name": acceptance.REPOSITORY},
+            "pull_requests": [],
+        }
+        pr = {"number": 44, "head": {"sha": "b" * 40}}
+        with patch.object(acceptance, "api", return_value={"workflow_runs": [run]}):
+            self.assertEqual(acceptance.successful_pr_runs(acceptance.NATIVE_WORKFLOW, pr), run)
+
     def app_outputs(self, root):
         value = release.version()
         outputs = root / "outputs"
@@ -84,7 +96,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
                 "head_repository": {"full_name": acceptance.REPOSITORY},
                 "path": acceptance.NATIVE_WORKFLOW, "conclusion": "success",
                 "event": "pull_request", "head_sha": "b" * 40,
-                "pull_requests": [{"number": 44, "base": {"sha": "f" * 40}}],
+                "pull_requests": [],
             }
             pr = {
                 "number": 44, "merged": True, "merge_commit_sha": "d" * 40,
@@ -120,7 +132,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             "head_repository": {"full_name": acceptance.REPOSITORY},
             "path": acceptance.CHECK_WORKFLOW, "conclusion": "success",
             "event": "pull_request", "head_sha": "b" * 40,
-            "pull_requests": [{"number": 44, "base": {"sha": "f" * 40}}],
+            "pull_requests": [],
         }
         pr = {
             "number": 44, "head": {"sha": "b" * 40},
@@ -140,6 +152,56 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         with patch.object(acceptance, "api", side_effect=api_fn), patch.object(acceptance, "trusted_blob"):
             with self.assertRaisesRegex(ValueError, "expired"):
                 acceptance.check_receipt(run, artifact, "c" * 40, pr, "d" * 40)
+
+    def test_accepted_dagger_mapping_revalidates_run_without_pr_association(self):
+        receipt = {
+            "schema": 1, "repository": acceptance.REPOSITORY,
+            "workflow_path": acceptance.CHECK_WORKFLOW, "run_id": 777,
+            "run_attempt": 2, "event": "pull_request", "head_sha": "b" * 40,
+            "base_sha": "f" * 40, "pr_number": 44, "tested_tree": "c" * 40,
+            "check": "integration", "workflow_sha": "a" * 40,
+        }
+        bundle = io.BytesIO()
+        with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("check-candidate.json", json.dumps(receipt))
+        data = bundle.getvalue()
+        run = {
+            "id": 777, "run_attempt": 2, "path": acceptance.CHECK_WORKFLOW,
+            "event": "pull_request", "conclusion": "success", "head_sha": "b" * 40,
+            "repository": {"full_name": acceptance.REPOSITORY},
+            "head_repository": {"full_name": acceptance.REPOSITORY}, "pull_requests": [],
+        }
+        artifact = {
+            "id": 999, "name": f"{acceptance.CHECK_ARTIFACT_PREFIX}-777-2",
+            "digest": "sha256:" + acceptance.sha(data), "expired": False,
+        }
+        accepted = {
+            "check_run_id": 777, "check_run_attempt": 2, "pr_number": 44,
+            "pr_head_sha": "b" * 40, "source_base_sha": "f" * 40,
+            "accepted_tree": "c" * 40, "check_artifact_id": 999,
+            "check_artifact_digest": artifact["digest"], "check_artifact_name": artifact["name"],
+            "check_workflow_sha": "a" * 40,
+        }
+        pr = {
+            "number": 44, "merged": True, "merge_commit_sha": "d" * 40,
+            "head": {"sha": "b" * 40, "repo": {"full_name": acceptance.REPOSITORY}},
+            "base": {"ref": "main", "sha": "f" * 40,
+                     "repo": {"full_name": acceptance.REPOSITORY}},
+        }
+
+        def api_fn(path, binary=False):
+            if path.endswith("/actions/runs/777"):
+                return run
+            if path.endswith("/actions/runs/777/artifacts?per_page=100"):
+                return {"artifacts": [artifact]}
+            if path.endswith("/actions/artifacts/999/zip"):
+                return data
+            if "/contents/" in path:
+                return {"sha": "same"}
+            raise AssertionError(path)
+
+        with patch.object(acceptance, "api", side_effect=api_fn), patch.object(acceptance, "trusted_blob"):
+            acceptance.verify_check_mapping(accepted, "d" * 40, pr)
 
     def test_artifact_zip_rejects_traversal_and_duplicates(self):
         traversal = io.BytesIO()

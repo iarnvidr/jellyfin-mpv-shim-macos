@@ -173,9 +173,7 @@ def successful_pr_runs(workflow, pr):
                      and item.get("path") == workflow
                      and item.get("head_sha") == pr["head"]["sha"]
                      and item.get("event") == "pull_request"
-                     and item.get("conclusion") == "success"
-                     and len(item.get("pull_requests", [])) == 1
-                     and item["pull_requests"][0].get("number") == pr["number"])
+                      and item.get("conclusion") == "success")
         if len(batch) < 100:
             break
     if not found:
@@ -196,11 +194,9 @@ def check_receipt(run, artifact, accepted_tree, pr, merge_sha, source_base_sha=N
     if (run.get("repository", {}).get("full_name") != REPOSITORY
             or run.get("head_repository", {}).get("full_name") != REPOSITORY
             or run.get("path") != CHECK_WORKFLOW or run.get("event") != "pull_request"
-            or run.get("conclusion") != "success" or run.get("head_sha") != pr["head"]["sha"]
-            or len(run.get("pull_requests", [])) != 1
-            or run["pull_requests"][0].get("number") != pr["number"]):
+            or run.get("conclusion") != "success" or run.get("head_sha") != pr["head"]["sha"]):
         raise ValueError("Dagger producer is not the successful same-repository PR run")
-    base_sha = run["pull_requests"][0].get("base", {}).get("sha")
+    base_sha = pr.get("base", {}).get("sha")
     if source_base_sha and base_sha != source_base_sha:
         raise ValueError("Dagger check and native runs were tested against different bases")
     if artifact.get("name") != f"{CHECK_ARTIFACT_PREFIX}-{run['id']}-{run['run_attempt']}":
@@ -230,8 +226,6 @@ def native_receipt(root, run, artifact, data, pr, merge_sha, merge_tree):
             or run.get("head_repository", {}).get("full_name") != REPOSITORY
             or run.get("path") != NATIVE_WORKFLOW or run.get("event") != "pull_request"
             or run.get("conclusion") != "success" or run.get("head_sha") != pr["head"]["sha"]
-            or len(run.get("pull_requests", [])) != 1
-            or run["pull_requests"][0].get("number") != pr["number"]
             or not pr.get("merged") or pr.get("merge_commit_sha") != merge_sha
             or pr.get("base", {}).get("ref") != "main"
             or pr.get("base", {}).get("repo", {}).get("full_name") != REPOSITORY
@@ -246,13 +240,11 @@ def native_receipt(root, run, artifact, data, pr, merge_sha, merge_tree):
         "schema": 1, "repository": REPOSITORY, "workflow_path": NATIVE_WORKFLOW,
         "run_id": run["id"], "run_attempt": run["run_attempt"], "event": "pull_request",
         "head_sha": pr["head"]["sha"],
-        "base_sha": run["pull_requests"][0].get("base", {}).get("sha"),
+        "base_sha": pr.get("base", {}).get("sha"),
         "pr_number": pr["number"], "tested_tree": merge_tree, "version": version(root),
     }
     if any(receipt.get(key) != value for key, value in expected.items()):
         raise ValueError("native receipt does not bind the accepted merge tree and PR")
-    if run["pull_requests"][0].get("base", {}).get("sha") != receipt["base_sha"]:
-        raise ValueError("native run base does not match its receipt")
     files = {name: sha(body) for name, body in members.items() if name != "native-receipt.json"}
     if receipt.get("files") != files:
         raise ValueError("native artifact files differ from the receipt inventory")
@@ -336,18 +328,23 @@ def mapping(root, mapping_run_id, expected_commit):
     return accepted
 
 
-def verify_check_mapping(accepted, merge_sha):
+def verify_check_mapping(accepted, merge_sha, pr):
     run_id, attempt = accepted["check_run_id"], accepted["check_run_attempt"]
     run = api(f"repos/{REPOSITORY}/actions/runs/{run_id}")
     if (run.get("repository", {}).get("full_name") != REPOSITORY
             or run.get("head_repository", {}).get("full_name") != REPOSITORY
             or run.get("path") != CHECK_WORKFLOW or run.get("event") != "pull_request"
             or run.get("conclusion") != "success" or run.get("run_attempt") != attempt
-            or run.get("head_sha") != accepted["pr_head_sha"]
-            or len(run.get("pull_requests", [])) != 1
-            or run["pull_requests"][0].get("number") != accepted["pr_number"]
-            or run["pull_requests"][0].get("base", {}).get("sha") != accepted["source_base_sha"]):
+            or run.get("head_sha") != accepted["pr_head_sha"]):
         raise ValueError("accepted Dagger check run changed identity")
+    if (pr.get("number") != accepted["pr_number"] or not pr.get("merged")
+            or pr.get("merge_commit_sha") != merge_sha
+            or pr.get("head", {}).get("sha") != accepted["pr_head_sha"]
+            or pr.get("base", {}).get("sha") != accepted["source_base_sha"]
+            or pr.get("base", {}).get("ref") != "main"
+            or pr.get("head", {}).get("repo", {}).get("full_name") != REPOSITORY
+            or pr.get("base", {}).get("repo", {}).get("full_name") != REPOSITORY):
+        raise ValueError("accepted Dagger check run is not bound to the exact merged same-repository PR")
     artifact = find_artifact(run, CHECK_ARTIFACT_PREFIX)
     if (artifact.get("id") != accepted["check_artifact_id"]
             or artifact.get("digest") != accepted["check_artifact_digest"]
@@ -375,7 +372,7 @@ def retrieve(root, mapping_run_id, expected_commit, target):
             or pr.get("head", {}).get("sha") != accepted["pr_head_sha"]
             or pr.get("head", {}).get("repo", {}).get("full_name") != REPOSITORY):
         raise ValueError("accepted source PR no longer matches the exact main merge")
-    verify_check_mapping(accepted, expected_commit)
+    verify_check_mapping(accepted, expected_commit, pr)
     run = api(f"repos/{REPOSITORY}/actions/runs/{accepted['native_run_id']}")
     artifacts = api(f"repos/{REPOSITORY}/actions/runs/{accepted['native_run_id']}/artifacts?per_page=100")["artifacts"]
     found = [item for item in artifacts if item.get("id") == accepted["native_artifact_id"]
